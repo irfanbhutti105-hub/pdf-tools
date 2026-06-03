@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../core/app_theme.dart';
 
 class FeatureBanner extends StatelessWidget {
   const FeatureBanner({super.key});
@@ -11,25 +10,29 @@ class FeatureBanner extends StatelessWidget {
       icon: Icons.security_rounded,
       color: Color(0xFF43C6AC),
       title: 'Secure & Private',
-      desc: 'Files are encrypted in transit and auto-deleted after processing. We never store your data.',
+      desc:
+          'Files are encrypted in transit and auto-deleted after processing. We never store your data.',
     ),
     (
       icon: Icons.bolt_rounded,
       color: Color(0xFFFFB347),
       title: 'Lightning Fast',
-      desc: 'Optimised processing engine handles large PDFs in seconds, not minutes.',
+      desc:
+          'Optimised processing engine handles large PDFs in seconds, not minutes.',
     ),
     (
       icon: Icons.devices_rounded,
       color: Color(0xFF6C63FF),
       title: 'Works Everywhere',
-      desc: 'Use on any device — desktop, tablet, or mobile. No installation required.',
+      desc:
+          'Use on any device — desktop, tablet, or mobile. No installation required.',
     ),
     (
       icon: Icons.cloud_done_rounded,
       color: Color(0xFFFF6584),
       title: 'No Sign-Up Needed',
-      desc: 'Jump straight in. All core tools are free with no account required.',
+      desc:
+          'Jump straight in. All core tools are free with no account required.',
     ),
   ];
 
@@ -71,7 +74,8 @@ class FeatureBanner extends StatelessWidget {
                       .entries
                       .map((e) => Expanded(
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
                               child: _FeatureCard(
                                 icon: e.value.icon,
                                 color: e.value.color,

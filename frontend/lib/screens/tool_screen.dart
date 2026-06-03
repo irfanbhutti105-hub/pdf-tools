@@ -1,27 +1,43 @@
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_quill/flutter_quill.dart' as quill;
-import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
+import 'package:provider/provider.dart';
 
 import '../core/app_theme.dart';
 import '../data/tools_data.dart';
 import '../models/pdf_tool.dart';
+import '../providers/favorites_provider.dart';
+import '../providers/notifications_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/pdf_api_service.dart';
-import '../widgets/app_navbar.dart';
-import '../widgets/drop_zone_widget.dart';
+import '../widgets/ad_banner.dart';
 import '../widgets/processing_panel.dart';
+import 'in_app_pdf_viewer_screen.dart';
+import 'notifications_screen.dart';
+import 'pdf_canvas_editor_screen.dart';
 import 'package:dio/dio.dart' as dio;
 import 'package:universal_html/html.dart' as html;
 import 'package:open_file/open_file.dart';
 import 'dart:convert';
 
+import 'package:flutter_quill/flutter_quill.dart' as quill;
+import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart' as q2h;
+
 class ToolScreen extends StatefulWidget {
   final String toolId;
-  const ToolScreen({super.key, required this.toolId});
+  final Uint8List? initialPdfBytes;
+  final String? initialPdfName;
+
+  const ToolScreen({
+    super.key,
+    required this.toolId,
+    this.initialPdfBytes,
+    this.initialPdfName,
+  });
 
   @override
   State<ToolScreen> createState() => _ToolScreenState();
@@ -40,8 +56,22 @@ class _ToolScreenState extends State<ToolScreen> {
   double _watermarkOpacity = 0.3;
   String _password = '';
   String _imageOrientation = 'portrait';
-  
-  final quill.QuillController _quillController = quill.QuillController.basic();
+
+  // New tool options (mutable)
+  String _htmlUrl = '';
+  String _pageOrder = '';
+  String _pageNumberPosition = 'bottom-center';
+  int _pageNumberStart = 1;
+  String _ocrLanguage = 'eng';
+  double _cropLeft = 0;
+  double _cropRight = 0;
+  double _cropTop = 0;
+  double _cropBottom = 0;
+  String _redactTerms = '';
+
+  final TextEditingController _textController = TextEditingController();
+  late final quill.QuillController _quillController;
+  int _selectedInputTab = 0; // 0 = Upload File, 1 = Rich Text Editor
 
   // State
   bool _isProcessing = false;
@@ -57,15 +87,59 @@ class _ToolScreenState extends State<ToolScreen> {
       (t) => t.id == widget.toolId,
       orElse: () => allTools.first,
     );
+    if (_tool!.id == 'pdf-editor') {
+      _selectedInputTab = 1;
+    }
+    _quillController = quill.QuillController.basic();
+
+    if (_tool!.id == 'pdf-editor' &&
+        widget.initialPdfBytes != null &&
+        widget.initialPdfBytes!.isNotEmpty) {
+      final name = widget.initialPdfName ?? 'document.pdf';
+      _pickedFiles = [
+        PlatformFile(
+          name: name,
+          size: widget.initialPdfBytes!.length,
+          bytes: widget.initialPdfBytes,
+        ),
+      ];
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openCanvasEditor(_pickedFiles.first);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _quillController.dispose();
+    super.dispose();
   }
 
   Future<void> _pickFiles() async {
+    // Determine file type and extensions
+    FileType fileType;
+    List<String>? allowedExtensions;
+
+    if (_tool!.acceptedExtensions.isEmpty) {
+      // No file picking for this tool (e.g., html-url-to-pdf)
+      return;
+    } else if (_tool!.acceptedExtensions.contains('pdf')) {
+      fileType = FileType.custom;
+      allowedExtensions = _tool!.acceptedExtensions;
+    } else if (_tool!.acceptedExtensions
+        .any((ext) => ['jpg', 'jpeg', 'png'].contains(ext))) {
+      fileType = FileType.image;
+      allowedExtensions = null; // Don't pass extensions for FileType.image
+    } else {
+      fileType = FileType.custom;
+      allowedExtensions = _tool!.acceptedExtensions;
+    }
+
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: _tool!.multiFile,
-      type: _tool!.acceptedExtensions.contains('pdf')
-          ? FileType.custom
-          : FileType.image,
-      allowedExtensions: _tool!.acceptedExtensions,
+      type: fileType,
+      allowedExtensions: allowedExtensions,
       withData: true,
     );
     if (result != null) {
@@ -74,6 +148,21 @@ class _ToolScreenState extends State<ToolScreen> {
         _errorMessage = null;
         _done = false;
       });
+      if (_tool!.id == 'pdf-viewer') {
+        final file = result.files.firstOrNull;
+        if (file?.bytes != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _openPdfInApp(file!);
+          });
+        }
+      } else if (_tool!.id == 'pdf-editor') {
+        final file = result.files.firstOrNull;
+        if (file?.bytes != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _openCanvasEditor(file!);
+          });
+        }
+      }
     }
   }
 
@@ -82,9 +171,40 @@ class _ToolScreenState extends State<ToolScreen> {
   }
 
   Future<void> _process() async {
-    final bool hasText = _tool!.id == 'text-to-pdf' && !_quillController.document.isEmpty();
-    if (_pickedFiles.isEmpty && !hasText) {
-      setState(() => _errorMessage = 'Please select at least one file or enter some text.');
+    bool canProcess = false;
+    if (_tool!.id == 'pdf-viewer') {
+      if (_pickedFiles.isNotEmpty && _pickedFiles.first.bytes != null) {
+        _openPdfInApp(_pickedFiles.first);
+      } else {
+        setState(() => _errorMessage = 'Please select a PDF file to view.');
+      }
+      return;
+    }
+    if (_tool!.id == 'text-to-pdf' || _tool!.id == 'pdf-editor') {
+      if (_selectedInputTab == 0 && _tool!.id == 'text-to-pdf') {
+        canProcess = _pickedFiles.isNotEmpty;
+      } else {
+        canProcess = _quillController.document.toPlainText().trim().isNotEmpty;
+      }
+    } else if (_tool!.id == 'html-url-to-pdf') {
+      // For HTML to PDF, we need a URL
+      canProcess = _htmlUrl.trim().isNotEmpty;
+    } else {
+      canProcess = _pickedFiles.isNotEmpty;
+    }
+
+    if (!canProcess) {
+      String errorMsg;
+      if (_tool!.id == 'text-to-pdf') {
+        errorMsg = _selectedInputTab == 0
+            ? 'Please select a text or Excel file to convert.'
+            : 'Please enter some text in the editor.';
+      } else if (_tool!.id == 'html-url-to-pdf') {
+        errorMsg = 'Please enter a valid URL.';
+      } else {
+        errorMsg = 'Please select at least one file.';
+      }
+      setState(() => _errorMessage = errorMsg);
       return;
     }
 
@@ -123,17 +243,47 @@ class _ToolScreenState extends State<ToolScreen> {
   }
 
   Future<void> _processFiles() async {
-    List<PlatformFile> files = _pickedFiles.where((f) => f.bytes != null).toList();
-    
-    if (_tool!.id == 'text-to-pdf' && !_quillController.document.isEmpty()) {
-      final delta = _quillController.document.toDelta().toJson();
-      final converter = QuillDeltaToHtmlConverter(
-        List.castFrom(delta),
-        ConverterOptions.forEmail(),
-      );
-      final html = converter.convert();
-      final bytes = utf8.encode(html);
-      files = [PlatformFile(name: 'input.txt', size: bytes.length, bytes: bytes)];
+    List<PlatformFile> files = [];
+
+    // Special handling for HTML URL to PDF - no files needed
+    if (_tool!.id == 'html-url-to-pdf') {
+      if (_htmlUrl.isEmpty) {
+        throw Exception('Please enter a valid URL');
+      }
+
+      onProgress(int sent, int total) {
+        setState(() => _uploadProgress = sent / total);
+      }
+
+      final response = await PdfApiService.htmlUrlToPdf(_htmlUrl,
+          onSendProgress: onProgress);
+
+      if (response.data != null) {
+        setState(() => _resultBytes = response.data);
+      }
+      return;
+    }
+
+    // Handle other tools that need files
+    if (_tool!.id == 'text-to-pdf' || _tool!.id == 'pdf-editor') {
+      if (_tool!.id == 'text-to-pdf' && _selectedInputTab == 0) {
+        files = _pickedFiles.where((f) => f.bytes != null).toList();
+      } else {
+        final deltaJson = _quillController.document.toDelta().toJson();
+        final converter = q2h.QuillDeltaToHtmlConverter(
+          List.castFrom(deltaJson),
+          q2h.ConverterOptions.forEmail(),
+        );
+        final htmlContent = converter.convert();
+        final fullHtml =
+            '<html><head><meta charset="utf-8"></head><body>$htmlContent</body></html>';
+        final bytes = utf8.encode(fullHtml);
+        files = [
+          PlatformFile(name: 'rich_text.html', size: bytes.length, bytes: bytes)
+        ];
+      }
+    } else {
+      files = _pickedFiles.where((f) => f.bytes != null).toList();
     }
 
     if (files.isEmpty) {
@@ -148,7 +298,8 @@ class _ToolScreenState extends State<ToolScreen> {
 
     switch (_tool!.id) {
       case 'merge':
-        response = await PdfApiService.mergePdfs(files, onSendProgress: onProgress);
+        response =
+            await PdfApiService.mergePdfs(files, onSendProgress: onProgress);
         break;
       case 'split':
         response = await PdfApiService.splitPdf(
@@ -185,20 +336,75 @@ class _ToolScreenState extends State<ToolScreen> {
             orientation: _imageOrientation, onSendProgress: onProgress);
         break;
       case 'pdf-to-images':
-        response = await PdfApiService.pdfToImages(files.first, onSendProgress: onProgress);
+        response = await PdfApiService.pdfToImages(files.first,
+            onSendProgress: onProgress);
         break;
       case 'extract-text':
         response = await PdfApiService.extractText(files.first);
         break;
       case 'text-to-pdf':
-        response = await PdfApiService.textToPdf(files.first, onSendProgress: onProgress);
+      case 'pdf-editor':
+        response = await PdfApiService.textToPdf(files.first,
+            onSendProgress: onProgress);
         break;
       case 'info':
         response = await PdfApiService.getPdfInfo(files.first);
         break;
+      // New tools
+      case 'word-to-pdf':
+        response = await PdfApiService.wordToPdf(files.first,
+            onSendProgress: onProgress);
+        break;
+      case 'pdf-to-word':
+        response = await PdfApiService.pdfToWord(files.first,
+            onSendProgress: onProgress);
+        break;
+      case 'pdf-to-excel':
+        response = await PdfApiService.pdfToExcel(files.first,
+            onSendProgress: onProgress);
+        break;
+      case 'excel-to-pdf':
+        response = await PdfApiService.excelToPdf(files.first,
+            onSendProgress: onProgress);
+        break;
+      case 'powerpoint-to-pdf':
+        response = await PdfApiService.powerpointToPdf(files.first,
+            onSendProgress: onProgress);
+        break;
+      case 'pdf-to-powerpoint':
+        response = await PdfApiService.pdfToPowerpoint(files.first,
+            onSendProgress: onProgress);
+        break;
+      case 'organize':
+        response = await PdfApiService.organizePdf(files.first,
+            pageOrder: _pageOrder, onSendProgress: onProgress);
+        break;
+      case 'add-page-numbers':
+        response = await PdfApiService.addPageNumbers(files.first,
+            position: _pageNumberPosition,
+            startNumber: _pageNumberStart,
+            onSendProgress: onProgress);
+        break;
+      case 'ocr':
+        response = await PdfApiService.ocrPdf(files.first,
+            language: _ocrLanguage, onSendProgress: onProgress);
+        break;
+      case 'crop':
+        response = await PdfApiService.cropPdf(files.first,
+            left: _cropLeft,
+            right: _cropRight,
+            top: _cropTop,
+            bottom: _cropBottom,
+            onSendProgress: onProgress);
+        break;
+      case 'redact':
+        response = await PdfApiService.redactPdf(files.first,
+            searchTerms: _redactTerms, onSendProgress: onProgress);
+        break;
     }
 
-    if (response != null && (response.statusCode == 200 || response.statusCode == 201)) {
+    if (response != null &&
+        (response.statusCode == 200 || response.statusCode == 201)) {
       if (response.data is List<int>) {
         _resultBytes = response.data as List<int>;
       } else if (response.data is String) {
@@ -212,6 +418,81 @@ class _ToolScreenState extends State<ToolScreen> {
     }
   }
 
+  void _openCanvasEditor(PlatformFile file) {
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      setState(() => _errorMessage = 'Please select a valid PDF file.');
+      return;
+    }
+    setState(() => _errorMessage = null);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfCanvasEditorScreen(
+          bytes: Uint8List.fromList(bytes),
+          fileName: file.name.isNotEmpty ? file.name : 'document.pdf',
+        ),
+      ),
+    );
+  }
+
+  void _openPdfInApp(PlatformFile file) {
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      setState(() => _errorMessage = 'Please select a valid PDF file.');
+      return;
+    }
+    setState(() => _errorMessage = null);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => InAppPdfViewerScreen(
+          bytes: Uint8List.fromList(bytes),
+          fileName: file.name.isNotEmpty ? file.name : 'document.pdf',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _importPdfTextToEditor() async {
+    if (_pickedFiles.isEmpty || _pickedFiles.first.bytes == null) {
+      setState(() => _errorMessage = 'Select a PDF file to import text from.');
+      return;
+    }
+    setState(() {
+      _isProcessing = true;
+      _errorMessage = null;
+    });
+    try {
+      final response = await PdfApiService.extractText(_pickedFiles.first);
+      dynamic data = response.data;
+      if (data is List<int>) {
+        data = jsonDecode(utf8.decode(data));
+      } else if (data is String) {
+        data = jsonDecode(data);
+      }
+      final pages = (data as Map<String, dynamic>)['pages'] as List<dynamic>;
+      final text = pages
+          .map((p) => (p as Map<String, dynamic>)['text'] as String? ?? '')
+          .join('\n\n');
+      final docLength = _quillController.document.length;
+      _quillController.replaceText(
+        0,
+        docLength > 0 ? docLength - 1 : 0,
+        text.trim().isEmpty ? '(No extractable text in this PDF)' : text,
+        null,
+      );
+      setState(() => _selectedInputTab = 1);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF text imported into editor')),
+        );
+      }
+    } catch (e) {
+      setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
   Future<void> _downloadResult() async {
     if (_resultBytes == null) {
       if (mounted) {
@@ -221,13 +502,13 @@ class _ToolScreenState extends State<ToolScreen> {
       }
       return;
     }
-    
+
     final outName = _getOutputName();
 
     if (kIsWeb) {
       final blob = html.Blob([_resultBytes]);
       final url = html.Url.createObjectUrlFromBlob(blob);
-      final anchor = html.AnchorElement(href: url)
+      html.AnchorElement(href: url)
         ..setAttribute('download', outName)
         ..click();
       html.Url.revokeObjectUrl(url);
@@ -240,7 +521,7 @@ class _ToolScreenState extends State<ToolScreen> {
       if (outputFile != null) {
         final file = File(outputFile);
         await file.writeAsBytes(_resultBytes!);
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -266,12 +547,26 @@ class _ToolScreenState extends State<ToolScreen> {
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isWide = MediaQuery.of(context).size.width > 900;
+    final isMobile = MediaQuery.of(context).size.width < 700;
+    final hasOptions = _buildOptions(isDark).isNotEmpty;
+    final unread = context.watch<NotificationsProvider>().unreadCount;
+    final isThemeDark = context.watch<ThemeProvider>().isDark;
+    final favorites = context.watch<FavoritesProvider>();
+    final isFavorite = favorites.isFavorite(_tool!.id);
 
-    final hasInput = _pickedFiles.isNotEmpty || (_tool!.id == 'text-to-pdf' && !_quillController.document.isEmpty());
+    final hasInput = _pickedFiles.isNotEmpty ||
+        (_tool!.id == 'text-to-pdf' && _textController.text.isNotEmpty) ||
+        (_tool!.id == 'html-url-to-pdf' && _htmlUrl.isNotEmpty);
 
     Widget body;
     if (_isProcessing || _done || _errorMessage != null) {
       body = _buildProcessingState(isDark);
+    } else if (_tool!.id == 'text-to-pdf' || _tool!.id == 'pdf-editor') {
+      body = _buildTextToPdfScreen(isDark, isWide);
+    } else if (_tool!.id == 'pdf-viewer') {
+      body = _buildPdfViewerScreen(isDark, isWide);
+    } else if (_tool!.id == 'html-url-to-pdf') {
+      body = _buildHtmlToPdfScreen(isDark, isWide);
     } else if (hasInput) {
       body = _buildSelectedState(isDark, isWide);
     } else {
@@ -279,9 +574,100 @@ class _ToolScreenState extends State<ToolScreen> {
     }
 
     return Scaffold(
-      appBar: AppNavbar(isWide: isWide),
-      backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-      body: body,
+      appBar: AppBar(
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+        title: Row(
+          children: [
+            Icon(_tool!.icon, color: _tool!.color, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _tool!.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w700,
+                  fontSize: isMobile ? 17 : 18,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: isFavorite
+                ? 'Remove from favourites'
+                : 'Add to favourites',
+            onPressed: () => favorites.toggle(_tool!.id),
+            icon: Icon(
+              isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+              color: isFavorite ? AppTheme.secondaryColor : null,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Notifications',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+              );
+            },
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_none_rounded),
+                if (unread > 0)
+                  Positioned(
+                    right: -1,
+                    top: -1,
+                    child: Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.secondaryColor,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        unread > 99 ? '99+' : unread.toString(),
+                        style: GoogleFonts.poppins(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: isThemeDark ? 'Light mode' : 'Dark mode',
+            icon: Icon(isThemeDark
+                ? Icons.light_mode_rounded
+                : Icons.dark_mode_rounded),
+            onPressed: () => context.read<ThemeProvider>().toggleTheme(),
+          ),
+          if (!isWide && hasOptions)
+            IconButton(
+              icon: const Icon(Icons.tune_rounded),
+              tooltip: 'Tool options',
+              onPressed: () => _showOptionsBottomSheet(isDark),
+            ),
+        ],
+      ),
+      backgroundColor:
+          isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+      body: Column(
+        children: [
+          const SizedBox(height: 10),
+          const AdBanner(placement: 'ToolTop'),
+          const SizedBox(height: 10),
+          Expanded(child: body),
+        ],
+      ),
     );
   }
 
@@ -309,7 +695,7 @@ class _ToolScreenState extends State<ToolScreen> {
                   _done = false;
                   _errorMessage = null;
                   _pickedFiles.clear();
-                  _quillController.clear();
+                  _textController.clear();
                   _resultBytes = null;
                 });
               },
@@ -330,6 +716,136 @@ class _ToolScreenState extends State<ToolScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_tool!.icon, size: 80, color: _tool!.color),
+              const SizedBox(height: 24),
+              Text(
+                _tool!.title,
+                style: GoogleFonts.poppins(
+                  fontSize: isWide ? 48 : 30,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                  height: 1.1,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _tool!.subtitle,
+                style: GoogleFonts.poppins(
+                  fontSize: isWide ? 20 : 15,
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 48),
+              if (_tool!.id == 'text-to-pdf')
+                Container(
+                  constraints: const BoxConstraints(maxWidth: 800),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        height: 300,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.05)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.black.withOpacity(0.05)),
+                        ),
+                        child: TextField(
+                          controller: _textController,
+                          maxLines: null,
+                          expands: true,
+                          textAlignVertical: TextAlignVertical.top,
+                          style: GoogleFonts.poppins(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Enter your text here...',
+                            hintStyle: GoogleFonts.poppins(color: Colors.grey),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text('OR',
+                          style: GoogleFonts.poppins(
+                              color: Colors.grey, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+              if (_tool!.acceptedExtensions.isNotEmpty)
+                InkWell(
+                  onTap: _pickFiles,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    width: isWide ? 400 : double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 28),
+                    decoration: BoxDecoration(
+                      color: _tool!.color,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _tool!.color.withOpacity(0.4),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.folder_open_rounded,
+                            color: Colors.white, size: 26),
+                        const SizedBox(width: 12),
+                        Flexible(
+                          child: Text(
+                            'Select ${_tool!.acceptedExtensions.join('/').toUpperCase()}',
+                            style: GoogleFonts.poppins(
+                              fontSize: isWide ? 22 : 17,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (_tool!.acceptedExtensions.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'or drop files here',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                ),
+              ],
+            ],
+          ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.1),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHtmlToPdfScreen(bool isDark, bool isWide) {
+    return Center(
+      child: SingleChildScrollView(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 700),
+          padding: const EdgeInsets.all(40.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(_tool!.icon, size: 80, color: _tool!.color),
               const SizedBox(height: 24),
@@ -353,90 +869,69 @@ class _ToolScreenState extends State<ToolScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 48),
-              
-              if (_tool!.id == 'text-to-pdf')
-                Container(
-                  constraints: const BoxConstraints(maxWidth: 800),
-                  child: Column(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05)),
-                        ),
-                        child: Column(
-                          children: [
-                            quill.QuillSimpleToolbar(
-                              controller: _quillController,
-                              config: const quill.QuillSimpleToolbarConfig(
-                                showFontFamily: false,
-                                showSearchButton: false,
-                                showSubscript: false,
-                                showSuperscript: false,
-                              ),
-                            ),
-                            Container(
-                              height: 300,
-                              padding: const EdgeInsets.all(16),
-                              child: quill.QuillEditor.basic(
-                                controller: _quillController,
-                                config: const quill.QuillEditorConfig(),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text('OR', style: GoogleFonts.poppins(color: Colors.grey, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 16),
-                    ],
-                  ),
-                ),
-
-              InkWell(
-                onTap: _pickFiles,
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  width: isWide ? 400 : double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 28),
-                  decoration: BoxDecoration(
-                    color: _tool!.color,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _tool!.color.withOpacity(0.4),
-                        blurRadius: 24,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.folder_open_rounded, color: Colors.white, size: 32),
-                      const SizedBox(width: 16),
-                      Flexible(
-                        child: Text(
-                          'Select ${_tool!.acceptedExtensions.join('/').toUpperCase()}',
-                          style: GoogleFonts.poppins(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
+              Text(
+                'Enter Website URL',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white70 : Colors.black87,
                 ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                'or drop files here',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  color: isDark ? Colors.white38 : Colors.black38,
+              const SizedBox(height: 12),
+              TextField(
+                onChanged: (v) => setState(() => _htmlUrl = v),
+                style: GoogleFonts.poppins(fontSize: 16),
+                decoration: InputDecoration(
+                  hintText: 'https://example.com',
+                  hintStyle: GoogleFonts.poppins(color: Colors.grey),
+                  filled: true,
+                  fillColor:
+                      isDark ? Colors.white.withOpacity(0.05) : Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: isDark
+                          ? Colors.white10
+                          : Colors.black.withOpacity(0.1),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: isDark
+                          ? Colors.white10
+                          : Colors.black.withOpacity(0.1),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _tool!.color, width: 2),
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                height: 64,
+                child: ElevatedButton(
+                  onPressed: _htmlUrl.trim().isEmpty ? null : _process,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _tool!.color,
+                    disabledBackgroundColor: _tool!.color.withOpacity(0.3),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    'Convert to PDF',
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -447,113 +942,138 @@ class _ToolScreenState extends State<ToolScreen> {
   }
 
   Widget _buildSelectedState(bool isDark, bool isWide) {
+    final options = _buildOptions(isDark);
+    final showInlineOptions = !isWide && options.isNotEmpty;
+
     final leftContent = Container(
       padding: const EdgeInsets.all(40),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Text(
-                    'Home',
-                    style: GoogleFonts.poppins(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Text(
+                  'Home',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: AppTheme.primaryColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  size: 16, color: Colors.grey),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _pickedFiles.clear();
+                    _textController.clear();
+                  });
+                },
+                child: Text(
+                  _tool!.title,
+                  style: GoogleFonts.poppins(
                       fontSize: 13,
                       color: AppTheme.primaryColor,
-                      fontWeight: FontWeight.w500,
-                    ),
+                      fontWeight: FontWeight.w500),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  size: 16, color: Colors.grey),
+              Text('Options',
+                  style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey)),
+            ],
+          ),
+          const SizedBox(height: 32),
+          if (_tool!.id == 'text-to-pdf' && _textController.text.isNotEmpty)
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: isDark
+                          ? Colors.white10
+                          : Colors.black.withOpacity(0.05)),
+                ),
+                child: TextField(
+                  controller: _textController,
+                  maxLines: null,
+                  expands: true,
+                  textAlignVertical: TextAlignVertical.top,
+                  style: GoogleFonts.poppins(fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Enter your text here...',
+                    hintStyle: GoogleFonts.poppins(color: Colors.grey),
+                    border: InputBorder.none,
                   ),
                 ),
-                const Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey),
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _pickedFiles.clear();
-                      _quillController.clear();
-                    });
-                  },
-                  child: Text(
-                    _tool!.title,
-                    style: GoogleFonts.poppins(fontSize: 13, color: AppTheme.primaryColor, fontWeight: FontWeight.w500),
-                  ),
-                ),
-                const Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey),
-                Text('Options', style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey)),
-              ],
+              ),
+            )
+          else
+            Expanded(
+              child: ReorderableListView.builder(
+                buildDefaultDragHandles: false,
+                itemCount: _pickedFiles.length,
+                itemBuilder: (context, i) {
+                  final f = _pickedFiles[i];
+                  return _FileChip(
+                    key: ObjectKey(f),
+                    file: f,
+                    isDark: isDark,
+                    showDragHandle: _tool!.multiFile && _pickedFiles.length > 1,
+                    index: i,
+                    onRemove: () => _removeFile(i),
+                  );
+                },
+                onReorder: (oldIndex, newIndex) {
+                  setState(() {
+                    if (newIndex > oldIndex) newIndex -= 1;
+                    final item = _pickedFiles.removeAt(oldIndex);
+                    _pickedFiles.insert(newIndex, item);
+                  });
+                },
+              ),
             ),
-            const SizedBox(height: 32),
-            if (_tool!.id == 'text-to-pdf' && !_quillController.document.isEmpty())
-              Expanded(
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05)),
-                  ),
+          if (showInlineOptions) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+                ),
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: SingleChildScrollView(
                   child: Column(
-                    children: [
-                      quill.QuillSimpleToolbar(
-                        controller: _quillController,
-                        config: const quill.QuillSimpleToolbarConfig(
-                          showFontFamily: false,
-                          showSearchButton: false,
-                          showSubscript: false,
-                          showSuperscript: false,
-                        ),
-                      ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: quill.QuillEditor.basic(
-                            controller: _quillController,
-                            config: const quill.QuillEditorConfig(),
-                          ),
-                        ),
-                      ),
-                    ],
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: options,
                   ),
                 ),
-              )
-            else
-              Expanded(
-                child: ReorderableListView.builder(
-                  buildDefaultDragHandles: false,
-                  itemCount: _pickedFiles.length,
-                  itemBuilder: (context, i) {
-                    final f = _pickedFiles[i];
-                    return _FileChip(
-                      key: ObjectKey(f),
-                      file: f,
-                      isDark: isDark,
-                      showDragHandle: _tool!.multiFile && _pickedFiles.length > 1,
-                      index: i,
-                      onRemove: () => _removeFile(i),
-                    );
-                  },
-                  onReorder: (oldIndex, newIndex) {
-                    setState(() {
-                      if (newIndex > oldIndex) newIndex -= 1;
-                      final item = _pickedFiles.removeAt(oldIndex);
-                      _pickedFiles.insert(newIndex, item);
-                    });
-                  },
-                ),
               ),
-            if (_tool!.multiFile || _pickedFiles.isEmpty) ...[
-              const SizedBox(height: 24),
-              Center(
-                child: FloatingActionButton(
-                  onPressed: _pickFiles,
-                  backgroundColor: isDark ? Colors.white10 : Colors.white,
-                  elevation: 2,
-                  child: Icon(Icons.add_rounded, color: _tool!.color, size: 32),
-                ),
-              ),
-            ]
+            ),
           ],
-        ).animate().fadeIn(),
+          if (_tool!.multiFile || _pickedFiles.isEmpty) ...[
+            const SizedBox(height: 24),
+            Center(
+              child: FloatingActionButton(
+                onPressed: _pickFiles,
+                backgroundColor: isDark ? Colors.white10 : Colors.white,
+                elevation: 2,
+                child: Icon(Icons.add_rounded, color: _tool!.color, size: 32),
+              ),
+            ),
+          ]
+        ],
+      ).animate().fadeIn(),
     );
 
     final rightSidebar = Container(
@@ -575,6 +1095,7 @@ class _ToolScreenState extends State<ToolScreen> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(32),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
@@ -603,7 +1124,11 @@ class _ToolScreenState extends State<ToolScreen> {
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF1E293B) : Colors.white,
-              border: Border(top: BorderSide(color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05))),
+              border: Border(
+                  top: BorderSide(
+                      color: isDark
+                          ? Colors.white10
+                          : Colors.black.withOpacity(0.05))),
             ),
             child: SizedBox(
               width: double.infinity,
@@ -613,14 +1138,22 @@ class _ToolScreenState extends State<ToolScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _tool!.color,
                   disabledBackgroundColor: _tool!.color.withOpacity(0.5),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
                   elevation: 0,
                 ),
                 child: _isProcessing
-                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 3, color: Colors.white))
                     : Text(
                         _tool!.title,
-                        style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                        style: GoogleFonts.poppins(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white),
                       ),
               ),
             ),
@@ -630,15 +1163,55 @@ class _ToolScreenState extends State<ToolScreen> {
     );
 
     if (isWide) {
-      return Row(children: [Expanded(flex: 3, child: leftContent), rightSidebar]);
+      return Row(
+          children: [Expanded(flex: 3, child: leftContent), rightSidebar]);
     } else {
-      return SingleChildScrollView(
-        child: Column(
-          children: [
-            SizedBox(height: 500, child: leftContent),
-            rightSidebar,
-          ],
-        ),
+      return Column(
+        children: [
+          Expanded(child: leftContent),
+          SafeArea(
+            top: false,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                border: Border(
+                  top: BorderSide(
+                    color: isDark ? Colors.white10 : Colors.black.withOpacity(0.06),
+                  ),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const AdBanner(placement: 'ToolBeforeAction'),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 54,
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isProcessing ? null : _process,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _tool!.color,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(
+                        _tool!.title,
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       );
     }
   }
@@ -665,18 +1238,43 @@ class _ToolScreenState extends State<ToolScreen> {
         return 'pdf_pages.zip';
       case 'text-to-pdf':
         return 'text_to_pdf.pdf';
+      case 'pdf-editor':
+        return 'edited.pdf';
+      case 'pdf-viewer':
+        return 'document.pdf';
       case 'info':
         return 'pdf_info.json';
       case 'extract-text':
         return 'extracted_text.json';
+      // New tools
+      case 'word-to-pdf':
+        return 'word_to_pdf.pdf';
+      case 'pdf-to-word':
+        return 'pdf_to_word.docx';
+      case 'pdf-to-excel':
+        return 'pdf_to_excel.xlsx';
+      case 'excel-to-pdf':
+        return 'excel_to_pdf.pdf';
+      case 'powerpoint-to-pdf':
+        return 'powerpoint_to_pdf.pdf';
+      case 'pdf-to-powerpoint':
+        return 'pdf_to_powerpoint.pptx';
+      case 'html-url-to-pdf':
+        return 'webpage.pdf';
+      case 'organize':
+        return 'organized.pdf';
+      case 'add-page-numbers':
+        return 'numbered.pdf';
+      case 'ocr':
+        return 'ocr_result.pdf';
+      case 'crop':
+        return 'cropped.pdf';
+      case 'redact':
+        return 'redacted.pdf';
       default:
         return 'output.pdf';
     }
   }
-
-
-
-
 
   List<Widget> _buildOptions(bool isDark) {
     final labelStyle = GoogleFonts.poppins(
@@ -758,7 +1356,8 @@ class _ToolScreenState extends State<ToolScreen> {
             isDark: isDark,
           ),
           const SizedBox(height: 16),
-          Text('Opacity: ${(_watermarkOpacity * 100).round()}%', style: labelStyle),
+          Text('Opacity: ${(_watermarkOpacity * 100).round()}%',
+              style: labelStyle),
           Slider(
             value: _watermarkOpacity,
             min: 0.05,
@@ -801,8 +1400,7 @@ class _ToolScreenState extends State<ToolScreen> {
                   color: selected ? Colors.white : null,
                   fontWeight: FontWeight.w600,
                 ),
-                onSelected: (_) =>
-                    setState(() => _imageOrientation = opt.$1),
+                onSelected: (_) => setState(() => _imageOrientation = opt.$1),
               );
             }).toList(),
           ),
@@ -811,6 +1409,674 @@ class _ToolScreenState extends State<ToolScreen> {
       default:
         return [];
     }
+  }
+
+  Widget _buildPdfViewerScreen(bool isDark, bool isWide) {
+    final hasFile = _pickedFiles.isNotEmpty;
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Column(
+            children: [
+              Icon(_tool!.icon, size: 72, color: _tool!.color),
+              const SizedBox(height: 20),
+              Text(
+                _tool!.title,
+                style: GoogleFonts.poppins(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _tool!.subtitle,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: isDark ? Colors.white60 : Colors.black54,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              if (!hasFile)
+                InkWell(
+                  onTap: _pickFiles,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    decoration: BoxDecoration(
+                      color: _tool!.color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _tool!.color.withOpacity(0.35)),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.upload_file_rounded,
+                            color: _tool!.color, size: 36),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Select PDF file',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            color: _tool!.color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isDark ? Colors.white10 : const Color(0xFFE5E7EB),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.picture_as_pdf_rounded, color: _tool!.color),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _pickedFiles.first.name,
+                          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: () => setState(() => _pickedFiles.clear()),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openPdfInApp(_pickedFiles.first),
+                    icon: const Icon(Icons.visibility_rounded, color: Colors.white),
+                    label: Text(
+                      'View PDF',
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _tool!.color,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Opens in the app after you select. Use zoom or edit in the toolbar.',
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    color: isDark ? Colors.white54 : Colors.black45,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: _pickFiles,
+                  child: const Text('Choose another file'),
+                ),
+              ],
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 16),
+                Text(
+                  _errorMessage!,
+                  style: GoogleFonts.poppins(color: Colors.redAccent, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPdfEditorLanding(bool isDark) {
+    final hasFile = _pickedFiles.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: _tool!.color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _tool!.color.withOpacity(0.25)),
+          ),
+          child: Column(
+            children: [
+              Icon(Icons.design_services_rounded, size: 48, color: _tool!.color),
+              const SizedBox(height: 12),
+              Text(
+                'Visual PDF canvas',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Open your PDF on a page canvas. Drag text and images on top, then export — similar to Canva.',
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: isDark ? Colors.white60 : Colors.black54,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        if (!hasFile)
+          InkWell(
+            onTap: _pickFiles,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 28),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withOpacity(0.04) : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDark ? Colors.white12 : const Color(0xFFE5E7EB),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.upload_file_rounded, color: _tool!.color, size: 40),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Upload PDF to edit',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                      color: _tool!.color,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else ...[
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.picture_as_pdf_rounded, color: _tool!.color),
+            title: Text(
+              _pickedFiles.first.name,
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.close_rounded),
+              onPressed: () => setState(() => _pickedFiles.clear()),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: () => _openCanvasEditor(_pickedFiles.first),
+              icon: const Icon(Icons.edit_rounded, color: Colors.white),
+              label: Text(
+                'Open canvas editor',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: _tool!.color,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextButton(
+            onPressed: _pickFiles,
+            child: const Text('Choose another file'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildTextToPdfScreen(bool isDark, bool isWide) {
+    final isEditor = _tool!.id == 'pdf-editor';
+
+    return Center(
+      child: SingleChildScrollView(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 900),
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Breadcrumbs
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Text(
+                      'Home',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        color: AppTheme.primaryColor,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded,
+                      size: 16, color: Colors.grey),
+                  Text(
+                    _tool!.title,
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Title & Subtitle
+              Text(
+                _tool!.title,
+                style: GoogleFonts.poppins(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _tool!.subtitle,
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              if (isEditor) ...[
+                _buildPdfEditorLanding(isDark),
+              ] else ...[
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.05)
+                        : Colors.black.withOpacity(0.03),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.all(6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildTabButton(
+                          0, 'Upload File', Icons.upload_file_rounded, isDark),
+                      _buildTabButton(1, 'Rich Text Editor',
+                          Icons.edit_note_rounded, isDark),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                if (_selectedInputTab == 0) ...[
+                  if (_pickedFiles.isEmpty)
+                    _buildUploadArea(isDark, isWide)
+                  else
+                    _buildUploadedFileCard(isDark),
+                ] else ...[
+                  _buildRichTextEditor(isDark),
+                ],
+              ],
+
+              if (!isEditor) ...[
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: ElevatedButton(
+                    onPressed: _isProcessing ? null : _process,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _tool!.color,
+                      disabledBackgroundColor: _tool!.color.withOpacity(0.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: _isProcessing
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            'Convert to PDF',
+                            style: GoogleFonts.poppins(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                  ),
+                ),
+              ],
+            ],
+          ).animate().fadeIn(duration: 300.ms),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabButton(int index, String label, IconData icon, bool isDark) {
+    final isSelected = _selectedInputTab == index;
+    return GestureDetector(
+      onTap: () => setState(() {
+        _selectedInputTab = index;
+        _errorMessage = null;
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? _tool!.color : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: _tool!.color.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  )
+                ]
+              : [],
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isSelected
+                  ? Colors.white
+                  : (isDark ? Colors.white70 : Colors.black54),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: isSelected
+                    ? Colors.white
+                    : (isDark ? Colors.white70 : Colors.black54),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUploadArea(bool isDark, bool isWide) {
+    return InkWell(
+      onTap: _pickFiles,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withOpacity(0.02) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isDark ? Colors.white10 : Colors.black.withOpacity(0.08),
+            style: BorderStyle.solid,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(Icons.folder_open_rounded, color: _tool!.color, size: 64),
+            const SizedBox(height: 16),
+            Text(
+              'Select a file to convert',
+              style: GoogleFonts.poppins(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Supports Excel (.xlsx, .xls) and Plain Text (.txt)',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUploadedFileCard(bool isDark) {
+    final file = _pickedFiles.first;
+    final extension = file.name.split('.').last.toUpperCase();
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _tool!.color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              file.name.endsWith('.txt')
+                  ? Icons.text_snippet_rounded
+                  : Icons.table_chart_rounded,
+              color: _tool!.color,
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  file.name,
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$extension File • ${(file.size / 1024).toStringAsFixed(1)} KB',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => setState(() => _pickedFiles.clear()),
+            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRichTextEditor(bool isDark) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Quill Toolbar
+          quill.QuillSimpleToolbar(
+            configurations: quill.QuillSimpleToolbarConfigurations(
+              controller: _quillController,
+              showFontFamily: false,
+              showFontSize: false,
+              showBoldButton: true,
+              showItalicButton: true,
+              showUnderLineButton: true,
+              showStrikeThrough: true,
+              showColorButton: true,
+              showBackgroundColorButton: true,
+              showListNumbers: true,
+              showListBullets: true,
+              showListCheck: false,
+              showCodeBlock: true,
+              showQuote: true,
+              showIndent: true,
+              showLink: true,
+              showUndo: true,
+              showRedo: true,
+              showSubscript: false,
+              showSuperscript: false,
+              multiRowsDisplay: true,
+            ),
+          ),
+          const Divider(height: 1, thickness: 1),
+          // Quill Editor
+          SizedBox(
+            height: 350,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: quill.QuillEditor.basic(
+                configurations: quill.QuillEditorConfigurations(
+                  controller: _quillController,
+                  placeholder: 'Write your outstanding PDF content here...',
+                  padding: EdgeInsets.zero,
+                  autoFocus: false,
+                  expands: true,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showOptionsBottomSheet(bool isDark) {
+    final options = _buildOptions(isDark);
+    if (options.isEmpty) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Icon(_tool!.icon, color: _tool!.color, size: 22),
+                      const SizedBox(width: 10),
+                      Text(
+                        '${_tool!.title} options',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ...options,
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -858,7 +2124,8 @@ class _FileChip extends StatelessWidget {
               index: index!,
               child: const Padding(
                 padding: EdgeInsets.only(right: 12.0),
-                child: Icon(Icons.drag_indicator_rounded, size: 20, color: Colors.grey),
+                child: Icon(Icons.drag_indicator_rounded,
+                    size: 20, color: Colors.grey),
               ),
             ),
           const Icon(Icons.insert_drive_file_rounded,
@@ -889,8 +2156,8 @@ class _FileChip extends StatelessWidget {
             ),
           ),
           IconButton(
-            icon:
-                const Icon(Icons.close_rounded, size: 18, color: Colors.redAccent),
+            icon: const Icon(Icons.close_rounded,
+                size: 18, color: Colors.redAccent),
             onPressed: onRemove,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
@@ -933,9 +2200,8 @@ class _StyledTextField extends StatelessWidget {
   final bool isDark;
   final bool obscure;
   final int maxLines;
-  
+
   const _StyledTextField({
-    super.key,
     required this.hint,
     this.initialValue,
     required this.onChanged,
@@ -968,8 +2234,7 @@ class _StyledTextField extends StatelessWidget {
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
-            color:
-                isDark ? Colors.white12 : Colors.black.withOpacity(0.08),
+            color: isDark ? Colors.white12 : Colors.black.withOpacity(0.08),
           ),
         ),
         focusedBorder: OutlineInputBorder(

@@ -218,4 +218,214 @@ class PdfApiService {
       onSendProgress: onSendProgress,
     );
   }
+
+  /// Convert Word to PDF
+  static Future<Response> wordToPdf(
+    PlatformFile file, {
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+    });
+    return _dio.post(
+      ApiEndpoints.wordToPdf,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Convert PDF to Word
+  static Future<Response> pdfToWord(
+    PlatformFile file, {
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+    });
+    return _dio.post(
+      ApiEndpoints.pdfToWord,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Convert PDF to Excel
+  static Future<Response> pdfToExcel(
+    PlatformFile file, {
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+    });
+    return _dio.post(
+      ApiEndpoints.pdfToExcel,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Convert Excel to PDF
+  static Future<Response> excelToPdf(
+    PlatformFile file, {
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+    });
+    return _dio.post(
+      ApiEndpoints.excelToPdf,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Convert PowerPoint to PDF
+  static Future<Response> powerpointToPdf(
+    PlatformFile file, {
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+    });
+    return _dio.post(
+      ApiEndpoints.powerpointToPdf,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Convert PDF to PowerPoint
+  static Future<Response> pdfToPowerpoint(
+    PlatformFile file, {
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+    });
+    return _dio.post(
+      ApiEndpoints.pdfToPowerpoint,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Convert HTML URL to PDF
+  static Future<Response> htmlUrlToPdf(
+    String url, {
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'url': url,
+    });
+    return _dio.post(
+      ApiEndpoints.htmlUrlToPdf,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Organize/Reorder PDF pages
+  static Future<Response> organizePdf(
+    PlatformFile file, {
+    required String pageOrder,
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+      'page_order': pageOrder,
+    });
+    return _dio.post(
+      ApiEndpoints.organize,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Add page numbers to PDF
+  static Future<Response> addPageNumbers(
+    PlatformFile file, {
+    String position = 'bottom-center',
+    int startNumber = 1,
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+      'position': position,
+      'start_number': startNumber.toString(),
+    });
+    return _dio.post(
+      ApiEndpoints.addPageNumbers,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Perform OCR on PDF
+  static Future<Response> ocrPdf(
+    PlatformFile file, {
+    String language = 'eng',
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+      'language': language,
+    });
+    return _dio.post(
+      ApiEndpoints.ocr,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Crop PDF margins
+  static Future<Response> cropPdf(
+    PlatformFile file, {
+    double left = 0,
+    double bottom = 0,
+    double right = 0,
+    double top = 0,
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+      'left': left.toString(),
+      'bottom': bottom.toString(),
+      'right': right.toString(),
+      'top': top.toString(),
+    });
+    return _dio.post(
+      ApiEndpoints.crop,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
+
+  /// Redact sensitive information from PDF
+  static Future<Response> redactPdf(
+    PlatformFile file, {
+    required String searchTerms,
+    ProgressCallback? onSendProgress,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
+      'search_terms': searchTerms,
+    });
+    return _dio.post(
+      ApiEndpoints.redact,
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+      onSendProgress: onSendProgress,
+    );
+  }
 }

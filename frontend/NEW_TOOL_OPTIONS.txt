@@ -1,0 +1,192 @@
+// ADD THESE CASES TO THE _buildOptions METHOD IN tool_screen.dart
+// Add them before the 'default:' case
+
+      // New tool options
+      case 'html-url-to-pdf':
+        return [
+          Text('Website URL', style: labelStyle),
+          const SizedBox(height: 8),
+          _StyledTextField(
+            hint: 'https://example.com',
+            onChanged: (v) => _htmlUrl = v,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Enter the complete URL of the webpage you want to convert',
+            style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey),
+          ),
+        ];
+
+      case 'organize':
+        return [
+          Text('Page Order', style: labelStyle),
+          const SizedBox(height: 8),
+          _StyledTextField(
+            hint: 'e.g. 3,1,2,5 to reorder pages',
+            onChanged: (v) => _pageOrder = v,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Enter comma-separated page numbers in desired order',
+            style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey),
+          ),
+        ];
+
+      case 'add-page-numbers':
+        return [
+          Text('Position', style: labelStyle),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              'bottom-center',
+              'bottom-left',
+              'bottom-right',
+              'top-center',
+              'top-left',
+              'top-right',
+            ].map((pos) {
+              final selected = _pageNumberPosition == pos;
+              return ChoiceChip(
+                label: Text(pos.replaceAll('-', ' ').toUpperCase()),
+                selected: selected,
+                selectedColor: _tool!.color,
+                labelStyle: GoogleFonts.poppins(
+                  fontSize: 11,
+                  color: selected ? Colors.white : null,
+                  fontWeight: FontWeight.w600,
+                ),
+                onSelected: (_) => setState(() => _pageNumberPosition = pos),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          Text('Start Number', style: labelStyle),
+          const SizedBox(height: 8),
+          _StyledTextField(
+            hint: '1',
+            initialValue: _pageNumberStart.toString(),
+            onChanged: (v) => _pageNumberStart = int.tryParse(v) ?? 1,
+            isDark: isDark,
+          ),
+        ];
+
+      case 'ocr':
+        return [
+          Text('Language', style: labelStyle),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ('eng', 'English'),
+              ('spa', 'Spanish'),
+              ('fra', 'French'),
+              ('deu', 'German'),
+              ('ara', 'Arabic'),
+              ('chi_sim', 'Chinese'),
+            ].map((opt) {
+              final selected = _ocrLanguage == opt.$1;
+              return ChoiceChip(
+                label: Text(opt.$2),
+                selected: selected,
+                selectedColor: _tool!.color,
+                labelStyle: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: selected ? Colors.white : null,
+                  fontWeight: FontWeight.w600,
+                ),
+                onSelected: (_) => setState(() => _ocrLanguage = opt.$1),
+              );
+            }).toList(),
+          ),
+        ];
+
+      case 'crop':
+        return [
+          Text('Crop Margins (in points)', style: labelStyle),
+          const SizedBox(height: 16),
+          _CropSlider(
+            label: 'Left',
+            value: _cropLeft,
+            onChanged: (v) => setState(() => _cropLeft = v),
+            color: _tool!.color,
+          ),
+          const SizedBox(height: 12),
+          _CropSlider(
+            label: 'Right',
+            value: _cropRight,
+            onChanged: (v) => setState(() => _cropRight = v),
+            color: _tool!.color,
+          ),
+          const SizedBox(height: 12),
+          _CropSlider(
+            label: 'Top',
+            value: _cropTop,
+            onChanged: (v) => setState(() => _cropTop = v),
+            color: _tool!.color,
+          ),
+          const SizedBox(height: 12),
+          _CropSlider(
+            label: 'Bottom',
+            value: _cropBottom,
+            onChanged: (v) => setState(() => _cropBottom = v),
+            color: _tool!.color,
+          ),
+        ];
+
+      case 'redact':
+        return [
+          Text('Search Terms', style: labelStyle),
+          const SizedBox(height: 8),
+          _StyledTextField(
+            hint: 'e.g. confidential, secret',
+            onChanged: (v) => _redactTerms = v,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Enter comma-separated terms to redact from the PDF',
+            style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey),
+          ),
+        ];
+
+// Also add this helper widget at the end of the file, before the last closing brace:
+
+class _CropSlider extends StatelessWidget {
+  final String label;
+  final double value;
+  final ValueChanged<double> onChanged;
+  final Color color;
+
+  const _CropSlider({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$label: ${value.toInt()} pts',
+          style: GoogleFonts.poppins(fontSize: 12),
+        ),
+        Slider(
+          value: value,
+          min: 0,
+          max: 100,
+          divisions: 20,
+          activeColor: color,
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}

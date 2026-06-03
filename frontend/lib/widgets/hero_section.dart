@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-
 import '../core/app_theme.dart';
 
 class HeroSection extends StatelessWidget {
@@ -140,9 +139,7 @@ class _HeroText extends StatelessWidget {
             color: isDark ? Colors.white60 : const Color(0xFF6B7280),
             height: 1.7,
           ),
-        )
-            .animate()
-            .fadeIn(delay: 400.ms, duration: 600.ms),
+        ).animate().fadeIn(delay: 400.ms, duration: 600.ms),
 
         const SizedBox(height: 36),
 
@@ -158,7 +155,8 @@ class _HeroText extends StatelessWidget {
               icon: const Icon(Icons.rocket_launch_rounded, size: 18),
               label: const Text('Get Started Free'),
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
               ),
             ).animate().fadeIn(delay: 600.ms).slideY(begin: 0.3),
             OutlinedButton.icon(
@@ -166,7 +164,8 @@ class _HeroText extends StatelessWidget {
               icon: const Icon(Icons.play_circle_outline_rounded, size: 18),
               label: const Text('Watch Demo'),
               style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
                 side: const BorderSide(color: AppTheme.primaryColor),
                 foregroundColor: AppTheme.primaryColor,
                 shape: RoundedRectangleBorder(
@@ -343,6 +342,9 @@ class _HeroIllustrationState extends State<_HeroIllustration>
           ],
         ),
       ),
-    ).animate().fadeIn(delay: 300.ms, duration: 800.ms).scale(begin: const Offset(0.9, 0.9));
+    )
+        .animate()
+        .fadeIn(delay: 300.ms, duration: 800.ms)
+        .scale(begin: const Offset(0.9, 0.9));
   }
 }

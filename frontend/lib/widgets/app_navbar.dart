@@ -59,7 +59,15 @@ class AppNavbar extends StatelessWidget implements PreferredSizeWidget {
             _NavLink(label: 'Tools', onTap: () {}),
             const SizedBox(width: 24),
             _NavLink(label: 'Pricing', onTap: () {}),
-            _NavLink(label: 'About', onTap: () {}),
+            _NavLink(
+              label: 'About',
+              onTap: () => Navigator.of(context).pushNamed('/about'),
+            ),
+            const SizedBox(width: 24),
+            _NavLink(
+              label: 'Contact',
+              onTap: () => Navigator.of(context).pushNamed('/contact'),
+            ),
           ],
         ],
       ),

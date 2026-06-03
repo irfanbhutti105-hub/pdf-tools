@@ -63,6 +63,17 @@ CREATE INDEX idx_usage_user_id  ON usage_logs(user_id);
 CREATE INDEX idx_usage_tool     ON usage_logs(tool_id);
 CREATE INDEX idx_subs_user_id   ON subscriptions(user_id);
 
+-- ─── CV Versions ─────────────────────────────
+CREATE TABLE cv_versions (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL,
+  profile_data JSONB NOT NULL,
+  template_id TEXT,
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_cv_versions_user_id ON cv_versions(user_id);
+
 -- ─── Auto-update updated_at ──────────────────
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$

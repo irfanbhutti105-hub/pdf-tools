@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../core/app_theme.dart';
 import '../models/pdf_tool.dart';
 
 class DropZoneWidget extends StatefulWidget {
@@ -56,8 +55,7 @@ class _DropZoneWidgetState extends State<DropZoneWidget> {
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: widget.tool.color
-                      .withOpacity(_hovering ? 0.18 : 0.10),
+                  color: widget.tool.color.withOpacity(_hovering ? 0.18 : 0.10),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(

@@ -1,20 +1,50 @@
+# ─────────────────────────────────────────────
+# Database Connection Module
+# ─────────────────────────────────────────────
+
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+import psycopg2
+from typing import Optional
 
-# In a real scenario, this would come from an environment variable.
-SQLALCHEMY_DATABASE_URL = "postgresql://user:password@localhost/dbname"
-
-# For development without a DB, we can use sqlite, but user requested PostgreSQL.
-# We will use a mock setup for now, so it doesn't crash if PG isn't running locally.
-# engine = create_engine(SQLALCHEMY_DATABASE_URL)
-# SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# Mock DB Dependency for FastAPI
-def get_db():
-    db = None
+def get_db_connection():
+    """Get a PostgreSQL database connection."""
+    database_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://postgres:admin@localhost:5432/pdf_tools"
+    )
+    
     try:
-        yield db
-    finally:
-        pass
+        conn = psycopg2.connect(database_url)
+        return conn
+    except Exception as e:
+        print(f"Database connection failed: {e}")
+        raise
+
+def init_database():
+    """Initialize database tables if they don't exist."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Check if users table exists
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'users'
+            )
+        """)
+        
+        exists = cursor.fetchone()[0]
+        
+        if not exists:
+            print("Database tables not found. Please run schema.sql first.")
+            print("Run: psql -d pdf_tools -f schema.sql")
+        
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Database initialization check failed: {e}")
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()

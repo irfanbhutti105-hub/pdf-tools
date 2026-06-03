@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../core/app_theme.dart';
 
 class ProcessingPanel extends StatelessWidget {
   final bool isProcessing;
@@ -58,7 +56,8 @@ class ProcessingPanel extends StatelessWidget {
                   ),
                   Text(
                     error!,
-                    style: GoogleFonts.poppins(fontSize: 12, color: Colors.redAccent.withOpacity(0.8)),
+                    style: GoogleFonts.poppins(
+                        fontSize: 12, color: Colors.redAccent.withOpacity(0.8)),
                     softWrap: true,
                     overflow: TextOverflow.ellipsis,
                     maxLines: 4,
@@ -212,9 +211,7 @@ class _Panel extends StatelessWidget {
   final Color borderColor;
   final Widget child;
   const _Panel(
-      {required this.isDark,
-      required this.borderColor,
-      required this.child});
+      {required this.isDark, required this.borderColor, required this.child});
 
   @override
   Widget build(BuildContext context) {

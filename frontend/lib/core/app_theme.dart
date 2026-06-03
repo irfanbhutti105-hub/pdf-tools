@@ -64,11 +64,11 @@ class AppTheme {
           ),
           iconTheme: const IconThemeData(color: lightText),
         ),
-        cardTheme: CardThemeData(
+        cardTheme: const CardTheme(
           color: lightCard,
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.all(Radius.circular(20)),
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
@@ -93,7 +93,8 @@ class AppTheme {
         brightness: Brightness.dark,
         colorSchemeSeed: primaryColor,
         scaffoldBackgroundColor: darkBg,
-        textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme).copyWith(
+        textTheme:
+            GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme).copyWith(
           headlineLarge: GoogleFonts.poppins(
             fontSize: 40,
             fontWeight: FontWeight.w700,
@@ -130,11 +131,11 @@ class AppTheme {
           ),
           iconTheme: const IconThemeData(color: darkText),
         ),
-        cardTheme: CardThemeData(
+        cardTheme: const CardTheme(
           color: darkCard,
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.all(Radius.circular(20)),
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
