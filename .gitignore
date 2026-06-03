@@ -1,0 +1,60 @@
+# ===========================
+# Python / Backend
+# ===========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+.venv/
+venv/
+backend/venv/
+backend/__pycache__/
+backend/temp_files/
+.env
+backend/.env
+
+# ===========================
+# Flutter / Frontend
+# ===========================
+frontend/build/
+frontend/.dart_tool/
+frontend/.idea/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub-cache/
+frontend/.pub/
+frontend/*.iml
+
+# ===========================
+# IDE / Editors
+# ===========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ===========================
+# OS Files
+# ===========================
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ===========================
+# Misc
+# ===========================
+*.log
+*.tmp
+*.bak
+*.orig
