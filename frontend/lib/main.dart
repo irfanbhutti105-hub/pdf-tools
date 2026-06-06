@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import 'providers/favorites_provider.dart';
 import 'providers/notifications_provider.dart';
@@ -30,14 +33,87 @@ void main() {
   );
 }
 
-class PdfToolsApp extends StatelessWidget {
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+class PdfToolsApp extends StatefulWidget {
   const PdfToolsApp({super.key});
+
+  @override
+  State<PdfToolsApp> createState() => _PdfToolsAppState();
+}
+
+class _PdfToolsAppState extends State<PdfToolsApp> {
+  StreamSubscription? _intentDataStreamSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _initIntentListener();
+  }
+
+  void _initIntentListener() {
+    _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen(
+      (List<SharedMediaFile> value) {
+        _handleSharedFiles(value);
+      },
+      onError: (err) {
+        debugPrint("getMediaStream error: $err");
+      },
+    );
+
+    ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> value) {
+      _handleSharedFiles(value);
+    });
+  }
+
+  void _handleSharedFiles(List<SharedMediaFile> files) {
+    if (files.isEmpty) return;
+    final file = files.first;
+    
+    // Check if it's a PDF
+    if (file.path.toLowerCase().endsWith('.pdf') || 
+        (file.mimeType?.toLowerCase() == 'application/pdf')) {
+      try {
+        // Read file into bytes
+        final bytes = File(file.path).readAsBytesSync();
+        // Determine filename
+        String name = file.path.split('/').last;
+        // Sometimes the path is a content URI. If name is a number, we might want to default it.
+        if (name.isEmpty) name = 'shared_document.pdf';
+
+        // Push to viewer
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          navigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) => ToolScreen(
+                toolId: 'pdf-viewer',
+                initialPdfBytes: bytes,
+                initialPdfName: name,
+              ),
+            ),
+          );
+        });
+      } catch (e) {
+        debugPrint("Error reading shared file: $e");
+      }
+    }
+    
+    // Clear intent so it doesn't refire
+    ReceiveSharingIntent.instance.reset();
+  }
+
+  @override
+  void dispose() {
+    _intentDataStreamSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
 
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'PDF Tools — Merge, Split, Convert & More',
       debugShowCheckedModeBanner: false,
       themeMode: themeProvider.themeMode,
