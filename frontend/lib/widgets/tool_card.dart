@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../core/app_theme.dart';
+import '../core/open_tool.dart';
 import '../models/pdf_tool.dart';
 
 /// Premium tool tile used on Home and Tools screens.
@@ -41,7 +42,7 @@ class _ToolCardState extends State<ToolCard> {
         onTapDown: (_) => setState(() => _pressed = true),
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
-        onTap: () => Navigator.pushNamed(context, '/tool/${tool.id}'),
+        onTap: () => openPdfTool(context, tool),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,

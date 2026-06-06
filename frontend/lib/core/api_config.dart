@@ -1,4 +1,4 @@
-const String baseUrl = 'http://localhost:8000';
+const String baseUrl = 'http://16.192.77.241:8000';
 
 class ApiEndpoints {
   static const String merge = '$baseUrl/api/pdf/merge';

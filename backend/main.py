@@ -48,9 +48,9 @@ async def startup_event():
     # Check database connection
     try:
         init_database()
-        print("✅ Database connection successful")
+        print("[OK] Database connection successful")
     except Exception as e:
-        print(f"⚠️  Database connection failed: {e}")
+        print(f"[WARN] Database connection failed: {e}")
         print("   Guest mode will work, but authentication will be unavailable")
 
 
@@ -1272,12 +1272,13 @@ async def html_url_to_pdf(
 async def organize_pdf(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    page_order: str = Form(...),
+    page_order: Optional[str] = Form(None),
     current_user: Optional[dict] = Depends(get_current_user),
 ):
     """
     Reorganize PDF pages.
     page_order: comma-separated page numbers (1-indexed), e.g., "3,1,2,5" to reorder pages.
+    If omitted or empty, pages are kept in original order.
     """
     input_path = await save_upload(file)
     output_path = get_temp_path(".pdf")
@@ -1285,13 +1286,17 @@ async def organize_pdf(
     try:
         reader = PdfReader(str(input_path))
         writer = PdfWriter()
+        total = len(reader.pages)
         
-        # Parse page order
-        page_indices = [int(p.strip()) - 1 for p in page_order.split(",")]
+        # Parse page order or default to original order
+        if page_order and page_order.strip():
+            page_indices = [int(p.strip()) - 1 for p in page_order.split(",") if p.strip()]
+        else:
+            page_indices = list(range(total))
         
         # Add pages in specified order
         for idx in page_indices:
-            if 0 <= idx < len(reader.pages):
+            if 0 <= idx < total:
                 writer.add_page(reader.pages[idx])
 
         with open(output_path, "wb") as f:

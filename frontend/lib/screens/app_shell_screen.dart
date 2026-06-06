@@ -9,14 +9,15 @@ import '../providers/theme_provider.dart';
 import '../services/auth_service.dart';
 import '../features/cv_maker/providers/cv_maker_provider.dart';
 import '../features/cv_maker/screens/cv_maker_home_screen.dart';
+import '../features/document_scanner/screens/document_scanner_screen.dart';
 import '../providers/shell_navigation_provider.dart';
-import 'history_screen.dart';
+
 import 'home_screen.dart';
 import 'premium_screen.dart';
 import 'tools_screen.dart';
 import 'login_screen.dart';
 import 'notifications_screen.dart';
-import 'static_pages.dart';
+
 
 Future<void> _shareApplication(BuildContext context) async {
   await Clipboard.setData(const ClipboardData(text: 'Check out PDF Tools at https://pdftools.app'));
@@ -49,7 +50,7 @@ class _AppShellScreenState extends State<AppShellScreen> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialTab.clamp(0, 4);
+    _currentIndex = widget.initialTab.clamp(0, kAccountTabIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _shellNav = context.read<ShellNavigationProvider>();
@@ -61,7 +62,7 @@ class _AppShellScreenState extends State<AppShellScreen> {
   void _onShellNavRequest() {
     final pending = _shellNav?.consumePendingTab();
     if (pending != null && mounted) {
-      setState(() => _currentIndex = pending.clamp(0, 4));
+      setState(() => _currentIndex = pending.clamp(0, kAccountTabIndex));
     }
   }
 
@@ -86,26 +87,19 @@ class _AppShellScreenState extends State<AppShellScreen> {
     Navigator.pop(context);
   }
 
+  static const _tabTitles = ['Home', 'Tools', 'Scanner', 'CV Maker', 'Account'];
+
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<ThemeProvider>().isDark;
     final unread = context.watch<NotificationsProvider>().unreadCount;
-    final pages = [
-      const HomeScreen(embeddedInShell: true),
-      const ToolsScreen(embeddedInShell: true),
-      const CvMakerHomeScreen(),
-      const HistoryScreen(embeddedInShell: true),
-      _AccountTab(onLogout: _logout),
-    ];
-
-    final tabTitles = ['Home', 'Tools', 'CV Maker', 'File History', 'Account'];
 
     return Scaffold(
       // ── Top Bar ──────────────────────────────────
       appBar: AppBar(
         centerTitle: true,
         title: Text(
-          tabTitles[_currentIndex],
+          _tabTitles[_currentIndex],
           style: GoogleFonts.poppins(fontWeight: FontWeight.w700),
         ),
         leading: Builder(
@@ -137,7 +131,19 @@ class _AppShellScreenState extends State<AppShellScreen> {
       ),
 
       // ── Body ─────────────────────────────────────
-      body: IndexedStack(index: _currentIndex, children: pages),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          const HomeScreen(embeddedInShell: true),
+          const ToolsScreen(embeddedInShell: true),
+          DocumentScannerScreen(
+            key: const ValueKey('scanner'),
+            isActive: _currentIndex == kScannerTabIndex,
+          ),
+          const CvMakerHomeScreen(),
+          _AccountTab(key: const ValueKey('account'), onLogout: _logout),
+        ],
+      ),
 
       // ── Bottom Nav ───────────────────────────────
       bottomNavigationBar: _ProfessionalBottomNav(
@@ -178,67 +184,168 @@ class _ProfessionalBottomNav extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: NavigationBarTheme(
-          data: NavigationBarThemeData(
-            elevation: 0,
-            backgroundColor: bg,
-            indicatorColor: AppTheme.primaryColor.withOpacity(isDark ? 0.26 : 0.16),
-            indicatorShape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            labelTextStyle: MaterialStateProperty.resolveWith((states) {
-              final selected = states.contains(MaterialState.selected);
-              return GoogleFonts.poppins(
-                fontSize: 12.5,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                color: selected
-                    ? AppTheme.primaryColor
-                    : (isDark ? Colors.white70 : const Color(0xFF6B7280)),
-              );
-            }),
-            iconTheme: MaterialStateProperty.resolveWith((states) {
-              final selected = states.contains(MaterialState.selected);
-              return IconThemeData(
-                size: selected ? 24 : 22,
-                color: selected
-                    ? AppTheme.primaryColor
-                    : (isDark ? Colors.white70 : const Color(0xFF6B7280)),
-              );
-            }),
-          ),
-          child: NavigationBar(
-            selectedIndex: currentIndex,
-            onDestinationSelected: onTap,
-            labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home_rounded),
+        child: SizedBox(
+          height: 68,
+          child: Row(
+            children: [
+              _NavSlot(
                 label: 'Home',
+                icon: Icons.home_outlined,
+                selectedIcon: Icons.home_rounded,
+                selected: currentIndex == 0,
+                onTap: () => onTap(0),
+                isDark: isDark,
               ),
-              NavigationDestination(
-                icon: Icon(Icons.apps_outlined),
-                selectedIcon: Icon(Icons.apps_rounded),
+              _NavSlot(
                 label: 'Tools',
+                icon: Icons.apps_outlined,
+                selectedIcon: Icons.apps_rounded,
+                selected: currentIndex == 1,
+                onTap: () => onTap(1),
+                isDark: isDark,
               ),
-              NavigationDestination(
-                icon: Icon(Icons.description_outlined),
-                selectedIcon: Icon(Icons.description_rounded),
+              _CenterScannerButton(
+                selected: currentIndex == kScannerTabIndex,
+                onTap: () => onTap(kScannerTabIndex),
+              ),
+              _NavSlot(
                 label: 'CV Maker',
+                icon: Icons.description_outlined,
+                selectedIcon: Icons.description_rounded,
+                selected: currentIndex == kCvMakerTabIndex,
+                onTap: () => onTap(kCvMakerTabIndex),
+                isDark: isDark,
               ),
-              NavigationDestination(
-                icon: Icon(Icons.history_outlined),
-                selectedIcon: Icon(Icons.history_rounded),
-                label: 'History',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_outline_rounded),
-                selectedIcon: Icon(Icons.person_rounded),
+              _NavSlot(
                 label: 'Account',
+                icon: Icons.person_outline_rounded,
+                selectedIcon: Icons.person_rounded,
+                selected: currentIndex == kAccountTabIndex,
+                onTap: () => onTap(kAccountTabIndex),
+                isDark: isDark,
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _NavSlot extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool isDark;
+
+  const _NavSlot({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+    required this.selected,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected
+        ? AppTheme.primaryColor
+        : (isDark ? Colors.white70 : const Color(0xFF6B7280));
+
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(selected ? selectedIcon : icon, size: selected ? 24 : 22, color: color),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CenterScannerButton extends StatelessWidget {
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CenterScannerButton({
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: OverflowBox(
+        maxHeight: double.infinity,
+        child: Transform.translate(
+          offset: const Offset(0, -14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+            Material(
+              elevation: selected ? 10 : 6,
+              shadowColor: AppTheme.primaryColor.withOpacity(0.45),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onTap,
+                child: Ink(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: selected
+                          ? [AppTheme.primaryColor, AppTheme.secondaryColor]
+                          : [
+                              AppTheme.primaryColor.withOpacity(0.92),
+                              AppTheme.secondaryColor.withOpacity(0.88),
+                            ],
+                    ),
+                    border: Border.all(
+                      color: selected ? Colors.white : Colors.white.withOpacity(0.35),
+                      width: selected ? 3 : 2,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.photo_camera_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Scan',
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: selected ? AppTheme.primaryColor : Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      ),
       ),
     );
   }
@@ -391,21 +498,22 @@ class _AppDrawer extends StatelessWidget {
                   onTap: () => onNavigate(1),
                 ),
                 _SideTile(
-                  icon: Icons.description_rounded,
-                  label: 'CV Maker',
+                  icon: Icons.document_scanner_rounded,
+                  label: 'Document Scanner',
                   shortcut: '⌘3',
-                  selected: currentIndex == 2,
+                  selected: currentIndex == kScannerTabIndex,
                   isDark: isDark,
-                  onTap: () => onNavigate(2),
+                  onTap: () => onNavigate(kScannerTabIndex),
                 ),
                 _SideTile(
-                  icon: Icons.history_rounded,
-                  label: 'History',
+                  icon: Icons.description_rounded,
+                  label: 'CV Maker',
                   shortcut: '⌘4',
-                  selected: currentIndex == 3,
+                  selected: currentIndex == kCvMakerTabIndex,
                   isDark: isDark,
-                  onTap: () => onNavigate(3),
+                  onTap: () => onNavigate(kCvMakerTabIndex),
                 ),
+
                       _SideTile(
                         icon: Icons.notifications_none_rounded,
                         label: 'Notifications',
@@ -424,9 +532,9 @@ class _AppDrawer extends StatelessWidget {
                   icon: Icons.person_outline_rounded,
                   label: 'Account',
                   shortcut: '⌘5',
-                  selected: currentIndex == 4,
+                  selected: currentIndex == kAccountTabIndex,
                   isDark: isDark,
-                  onTap: () => onNavigate(4),
+                  onTap: () => onNavigate(kAccountTabIndex),
                 ),
                     ],
                   ),
@@ -867,7 +975,7 @@ class _NotificationBell extends StatelessWidget {
 
 class _AccountTab extends StatelessWidget {
   final Future<void> Function() onLogout;
-  const _AccountTab({required this.onLogout});
+  const _AccountTab({super.key, required this.onLogout});
 
   @override
   Widget build(BuildContext context) {

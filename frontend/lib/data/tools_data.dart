@@ -3,6 +3,16 @@ import '../models/pdf_tool.dart';
 
 final List<PdfTool> allTools = [
   PdfTool(
+    id: 'document-scanner',
+    title: 'Document Scanner',
+    subtitle: 'Scan with camera, crop & export PDF',
+    icon: Icons.document_scanner_rounded,
+    color: const Color(0xFF00B4D8),
+    colorLight: const Color(0xFFE0F7FA),
+    endpoint: '/scanner',
+    acceptedExtensions: const [],
+  ),
+  PdfTool(
     id: 'merge',
     title: 'Merge PDF',
     subtitle: 'Combine multiple PDFs into one',

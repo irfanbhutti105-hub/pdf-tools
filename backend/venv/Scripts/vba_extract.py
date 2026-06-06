@@ -1,4 +1,4 @@
-#!D:\flutter_projects\pdf-tools\backend\venv\Scripts\python.exe
+#!D:\Flutter Projects\pdf-tools\backend\venv\Scripts\python.exe
 
 ##############################################################################
 #

@@ -9,6 +9,7 @@ import '../features/cv_maker/providers/cv_maker_provider.dart';
 import '../features/cv_maker/widgets/cv_preview_widget.dart';
 import '../providers/shell_navigation_provider.dart';
 import '../core/app_theme.dart';
+import '../core/open_tool.dart';
 import '../data/tools_data.dart';
 import '../models/pdf_tool.dart';
 import '../providers/favorites_provider.dart';
@@ -69,8 +70,8 @@ class HomeScreen extends StatelessWidget {
                 _TopToolsRow(isMobile: isMobile),
                 const SizedBox(height: 22),
                 _FavoriteToolsSection(isMobile: isMobile),
-                const SizedBox(height: 22),
-                _HomeHighlights(isDark: isDark, isMobile: isMobile),
+                // const SizedBox(height: 22),
+                // _HomeHighlights(isDark: isDark, isMobile: isMobile),
                 if (!embeddedInShell) ...[
                   const SizedBox(height: 26),
                   Text(
@@ -345,7 +346,7 @@ class _FavoriteToolsSection extends StatelessWidget {
               return _FavoriteToolChip(
                 tool: tool,
                 compact: isMobile,
-                onTap: () => Navigator.pushNamed(context, '/tool/${tool.id}'),
+                onTap: () => openPdfTool(context, tool),
                 onRemove: () => favorites.toggle(tool.id),
               );
             }).toList(),
@@ -605,7 +606,7 @@ class _TopToolsRow extends StatelessWidget {
           icon: tool.icon,
           color: tool.color,
           compact: isMobile,
-          onTap: () => Navigator.pushNamed(context, '/tool/${tool.id}'),
+          onTap: () => openPdfTool(context, tool),
         );
       }).toList(),
     );

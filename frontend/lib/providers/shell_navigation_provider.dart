@@ -16,5 +16,11 @@ class ShellNavigationProvider extends ChangeNotifier {
   }
 }
 
+/// Bottom-nav index for the Document Scanner tab (center camera).
+const kScannerTabIndex = 2;
+
 /// Bottom-nav index for the CV Maker tab.
-const kCvMakerTabIndex = 2;
+const kCvMakerTabIndex = 3;
+
+/// Bottom-nav index for the Account tab.
+const kAccountTabIndex = 4;

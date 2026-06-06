@@ -26,7 +26,8 @@ class _PdfPageData {
 
 const double _kRasterDpi = 144;
 
-/// Visual PDF editor: pages as canvas with movable text and images (Canva-style).
+/// Visual PDF editor: pages as canvas with movable text and images (Canva-style)
+/// featuring rich typography, alignment, and interactive resizing.
 class PdfCanvasEditorScreen extends StatefulWidget {
   final Uint8List bytes;
   final String fileName;
@@ -54,6 +55,19 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
   String? _selectedLayerId;
   bool _exporting = false;
   double _canvasScale = 1.0;
+
+  final List<Color> _palette = [
+    Colors.black, Colors.white, Colors.grey, 
+    Colors.red, Colors.pink, Colors.purple, Colors.deepPurple,
+    Colors.indigo, Colors.blue, Colors.lightBlue, Colors.cyan,
+    Colors.teal, Colors.green, Colors.lightGreen, Colors.lime,
+    Colors.yellow, Colors.amber, Colors.orange, Colors.deepOrange,
+    Colors.brown,
+  ];
+
+  final List<String> _fontFamilies = [
+    'Poppins', 'Roboto', 'Open Sans', 'Helvetica', 'Times', 'Courier'
+  ];
 
   @override
   void initState() {
@@ -136,44 +150,156 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
 
   Future<void> _editTextLayer(EditorLayer layer) async {
     final controller = TextEditingController(text: layer.text);
+    
+    // Create local copies of state to modify in dialog
     double size = layer.fontSizePt;
+    String family = layer.fontFamily;
+    bool bold = layer.isBold;
+    bool italic = layer.isItalic;
+    bool underline = layer.isUnderline;
+    TextAlign align = layer.textAlign;
+    Color color = layer.color;
+    double opacity = layer.opacity;
 
-    final saved = await showDialog<bool>(
+    final saved = await showModalBottomSheet<bool>(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('Edit text', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                maxLines: 4,
-                decoration: const InputDecoration(border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 16),
-              Row(
+        builder: (context, setSheetState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+              left: 20, right: 20, top: 20,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Size', style: GoogleFonts.poppins(fontSize: 13)),
-                  Expanded(
-                    child: Slider(
-                      min: 8,
-                      max: 48,
-                      divisions: 20,
-                      value: size,
-                      label: size.round().toString(),
-                      onChanged: (v) => setDialogState(() => size = v),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Typography Options', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
+                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx, false)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Text Content',
+                      border: OutlineInputBorder(),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _fontFamilies.contains(family) ? family : 'Poppins',
+                          decoration: const InputDecoration(labelText: 'Font', border: OutlineInputBorder()),
+                          items: _fontFamilies.map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
+                          onChanged: (v) => setSheetState(() => family = v!),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<TextAlign>(
+                          value: align,
+                          decoration: const InputDecoration(labelText: 'Alignment', border: OutlineInputBorder()),
+                          items: const [
+                            DropdownMenuItem(value: TextAlign.left, child: Text('Left')),
+                            DropdownMenuItem(value: TextAlign.center, child: Text('Center')),
+                            DropdownMenuItem(value: TextAlign.right, child: Text('Right')),
+                          ],
+                          onChanged: (v) => setSheetState(() => align = v!),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      FilterChip(
+                        label: const Text('B', style: TextStyle(fontWeight: FontWeight.bold)),
+                        selected: bold,
+                        onSelected: (v) => setSheetState(() => bold = v),
+                      ),
+                      FilterChip(
+                        label: const Text('I', style: TextStyle(fontStyle: FontStyle.italic)),
+                        selected: italic,
+                        onSelected: (v) => setSheetState(() => italic = v),
+                      ),
+                      FilterChip(
+                        label: const Text('U', style: TextStyle(decoration: TextDecoration.underline)),
+                        selected: underline,
+                        onSelected: (v) => setSheetState(() => underline = v),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Text('Size: ${size.round()}', style: GoogleFonts.poppins(fontSize: 13)),
+                      Expanded(
+                        child: Slider(
+                          min: 8, max: 120, value: size,
+                          onChanged: (v) => setSheetState(() => size = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Text('Opacity: ${(opacity * 100).round()}%', style: GoogleFonts.poppins(fontSize: 13)),
+                      Expanded(
+                        child: Slider(
+                          min: 0.1, max: 1.0, value: opacity,
+                          onChanged: (v) => setSheetState(() => opacity = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Color Palette', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    children: _palette.map((c) => GestureDetector(
+                      onTap: () => setSheetState(() => color = c),
+                      child: Container(
+                        width: 32, height: 32,
+                        decoration: BoxDecoration(
+                          color: c,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: color == c ? Colors.blueAccent : Colors.grey.withOpacity(0.5),
+                            width: color == c ? 3 : 1,
+                          ),
+                        ),
+                      ),
+                    )).toList(),
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Text('Apply Changes'),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-          ],
-        ),
+            ),
+          );
+        },
       ),
     );
 
@@ -181,6 +307,13 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
       setState(() {
         layer.text = controller.text.trim().isEmpty ? 'Text' : controller.text;
         layer.fontSizePt = size;
+        layer.fontFamily = family;
+        layer.isBold = bold;
+        layer.isItalic = italic;
+        layer.isUnderline = underline;
+        layer.textAlign = align;
+        layer.color = color;
+        layer.opacity = opacity;
       });
     }
     controller.dispose();
@@ -193,6 +326,51 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
     });
   }
 
+  Future<pw.Font> _getFont(String family, bool bold, bool italic) async {
+    switch (family) {
+      case 'Times':
+        if (bold && italic) return pw.Font.timesBoldItalic();
+        if (bold) return pw.Font.timesBold();
+        if (italic) return pw.Font.timesItalic();
+        return pw.Font.times();
+      case 'Courier':
+        if (bold && italic) return pw.Font.courierBoldOblique();
+        if (bold) return pw.Font.courierBold();
+        if (italic) return pw.Font.courierOblique();
+        return pw.Font.courier();
+      case 'Helvetica':
+        if (bold && italic) return pw.Font.helveticaBoldOblique();
+        if (bold) return pw.Font.helveticaBold();
+        if (italic) return pw.Font.helveticaOblique();
+        return pw.Font.helvetica();
+      case 'Roboto':
+        if (bold && italic) return await PdfGoogleFonts.robotoBoldItalic();
+        if (bold) return await PdfGoogleFonts.robotoBold();
+        if (italic) return await PdfGoogleFonts.robotoItalic();
+        return await PdfGoogleFonts.robotoRegular();
+      case 'Open Sans':
+        if (bold && italic) return await PdfGoogleFonts.openSansBoldItalic();
+        if (bold) return await PdfGoogleFonts.openSansBold();
+        if (italic) return await PdfGoogleFonts.openSansItalic();
+        return await PdfGoogleFonts.openSansRegular();
+      case 'Poppins':
+      default:
+        if (bold && italic) return await PdfGoogleFonts.poppinsBoldItalic();
+        if (bold) return await PdfGoogleFonts.poppinsBold();
+        if (italic) return await PdfGoogleFonts.poppinsItalic();
+        return await PdfGoogleFonts.poppinsRegular();
+    }
+  }
+
+  pw.TextAlign _getPdfTextAlign(TextAlign align) {
+    switch (align) {
+      case TextAlign.center: return pw.TextAlign.center;
+      case TextAlign.right: return pw.TextAlign.right;
+      case TextAlign.justify: return pw.TextAlign.justify;
+      default: return pw.TextAlign.left;
+    }
+  }
+
   Future<void> _exportPdf() async {
     setState(() => _exporting = true);
     try {
@@ -200,52 +378,66 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
       for (final pageData in _pages) {
         final format = pageData.pageFormat;
         final png = await pageData.raster.toPng();
+        
+        final pwLayers = <pw.Widget>[
+          pw.Image(
+            pw.MemoryImage(png),
+            width: format.width,
+            height: format.height,
+            fit: pw.BoxFit.fill,
+          ),
+        ];
+
+        for (final layer in pageData.layers) {
+          if (layer.type == EditorLayerType.text) {
+            final font = await _getFont(layer.fontFamily, layer.isBold, layer.isItalic);
+            final c = layer.color;
+            
+            pwLayers.add(
+              pw.Positioned(
+                left: layer.relX * format.width,
+                top: layer.relY * format.height,
+                child: pw.Opacity(
+                  opacity: layer.opacity,
+                  child: pw.Text(
+                    layer.text,
+                    textAlign: _getPdfTextAlign(layer.textAlign),
+                    style: pw.TextStyle(
+                      font: font,
+                      fontSize: layer.fontSizePt,
+                      color: PdfColor(c.red / 255.0, c.green / 255.0, c.blue / 255.0),
+                      decoration: layer.isUnderline ? pw.TextDecoration.underline : pw.TextDecoration.none,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          } else if (layer.imageBytes != null) {
+            pwLayers.add(
+              pw.Positioned(
+                left: layer.relX * format.width,
+                top: layer.relY * format.height,
+                child: pw.Opacity(
+                  opacity: layer.opacity,
+                  child: pw.SizedBox(
+                    width: layer.relWidth * format.width,
+                    height: layer.relHeight * format.height,
+                    child: pw.Image(
+                      pw.MemoryImage(layer.imageBytes!),
+                      fit: pw.BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+        }
+
         doc.addPage(
           pw.Page(
             pageFormat: format,
             margin: pw.EdgeInsets.zero,
-            build: (context) {
-              return pw.Stack(
-                children: [
-                  pw.Image(
-                    pw.MemoryImage(png),
-                    width: format.width,
-                    height: format.height,
-                    fit: pw.BoxFit.fill,
-                  ),
-                  ...pageData.layers.map((layer) {
-                    if (layer.type == EditorLayerType.text) {
-                      return pw.Positioned(
-                        left: layer.relX * format.width,
-                        top: layer.relY * format.height,
-                        child: pw.Text(
-                          layer.text,
-                          style: pw.TextStyle(
-                            fontSize: layer.fontSizePt,
-                            color: PdfColor.fromInt(layer.color.value),
-                          ),
-                        ),
-                      );
-                    }
-                    if (layer.imageBytes != null) {
-                      return pw.Positioned(
-                        left: layer.relX * format.width,
-                        top: layer.relY * format.height,
-                        child: pw.SizedBox(
-                          width: layer.relWidth * format.width,
-                          height: layer.relHeight * format.height,
-                          child: pw.Image(
-                            pw.MemoryImage(layer.imageBytes!),
-                            fit: pw.BoxFit.contain,
-                          ),
-                        ),
-                      );
-                    }
-                    return pw.SizedBox();
-                  }),
-                ],
-              );
-            },
+            build: (context) => pw.Stack(children: pwLayers),
           ),
         );
       }
@@ -334,36 +526,43 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
                     child: Text(_error!, textAlign: TextAlign.center),
                   ),
                 )
-              : Column(
-                  children: [
-                    _buildPageStrip(isDark, accent),
-                    Expanded(
-                      child: PageView.builder(
-                        controller: _pageController,
-                        itemCount: _pages.length,
-                        onPageChanged: (i) => setState(() {
-                          _currentPage = i;
-                          _selectedLayerId = null;
-                        }),
-                        itemBuilder: (context, index) {
-                          return SingleChildScrollView(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            child: Center(
-                              child: Transform.scale(
-                                scale: _canvasScale,
-                                alignment: Alignment.topCenter,
-                                child: _buildPageCanvas(index, isDark),
+              : GestureDetector(
+                  onTap: () {
+                    if (_selectedLayerId != null) {
+                      setState(() => _selectedLayerId = null);
+                    }
+                  },
+                  child: Column(
+                    children: [
+                      _buildPageStrip(isDark, accent),
+                      Expanded(
+                        child: PageView.builder(
+                          controller: _pageController,
+                          itemCount: _pages.length,
+                          onPageChanged: (i) => setState(() {
+                            _currentPage = i;
+                            _selectedLayerId = null;
+                          }),
+                          itemBuilder: (context, index) {
+                            return SingleChildScrollView(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
                               ),
-                            ),
-                          );
-                        },
+                              child: Center(
+                                child: Transform.scale(
+                                  scale: _canvasScale,
+                                  alignment: Alignment.topCenter,
+                                  child: _buildPageCanvas(index, isDark),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                    _buildToolbar(isDark, accent),
-                  ],
+                      _buildToolbar(isDark, accent),
+                    ],
+                  ),
                 ),
     );
   }
@@ -417,31 +616,46 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
             ),
           ],
         ),
-        child: Row(
-          children: [
-            _toolChip(
-              icon: Icons.text_fields_rounded,
-              label: 'Add text',
-              color: accent,
-              onTap: _addTextLayer,
-            ),
-            const SizedBox(width: 8),
-            _toolChip(
-              icon: Icons.image_rounded,
-              label: 'Add image',
-              color: accent,
-              onTap: _addImageLayer,
-            ),
-            if (_selectedLayerId != null) ...[
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _toolChip(
+                icon: Icons.text_fields_rounded,
+                label: 'Add text',
+                color: accent,
+                onTap: _addTextLayer,
+              ),
               const SizedBox(width: 8),
               _toolChip(
-                icon: Icons.delete_outline_rounded,
-                label: 'Delete',
-                color: Colors.redAccent,
-                onTap: () => _deleteLayer(_selectedLayerId!),
+                icon: Icons.image_rounded,
+                label: 'Add image',
+                color: accent,
+                onTap: _addImageLayer,
               ),
+              if (_selectedLayerId != null) ...[
+                const SizedBox(width: 8),
+                Container(width: 1, height: 24, color: Colors.grey.withOpacity(0.3)),
+                const SizedBox(width: 8),
+                _toolChip(
+                  icon: Icons.edit_rounded,
+                  label: 'Edit',
+                  color: Colors.blueAccent,
+                  onTap: () {
+                    final layer = _pages[_currentPage].layers.firstWhere((l) => l.id == _selectedLayerId);
+                    if (layer.type == EditorLayerType.text) _editTextLayer(layer);
+                  },
+                ),
+                const SizedBox(width: 8),
+                _toolChip(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete',
+                  color: Colors.redAccent,
+                  onTap: () => _deleteLayer(_selectedLayerId!),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -508,6 +722,7 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: Stack(
+              clipBehavior: Clip.none,
               children: [
                 Positioned.fill(
                   child: Image(
@@ -537,6 +752,11 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
     if (layer.type == EditorLayerType.text) {
       final format = _pages[pageIndex].pageFormat;
       final fontSize = layer.fontSizePt * (pageW / format.width);
+      
+      final String safeFont = ['Times', 'Helvetica', 'Courier'].contains(layer.fontFamily) 
+          ? 'Roboto' // Display fallback for native UI
+          : layer.fontFamily;
+          
       child = Container(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
         decoration: BoxDecoration(
@@ -547,52 +767,98 @@ class _PdfCanvasEditorScreenState extends State<PdfCanvasEditorScreen> {
           ),
           borderRadius: BorderRadius.circular(4),
         ),
-        child: Text(
-          layer.text,
-          style: GoogleFonts.poppins(
-            fontSize: fontSize.clamp(8, 72),
-            color: layer.color,
-            fontWeight: FontWeight.w600,
+        child: Opacity(
+          opacity: layer.opacity,
+          child: Text(
+            layer.text,
+            textAlign: layer.textAlign,
+            style: GoogleFonts.getFont(
+              safeFont,
+              fontSize: fontSize.clamp(8, 200),
+              color: layer.color,
+              fontWeight: layer.isBold ? FontWeight.bold : FontWeight.normal,
+              fontStyle: layer.isItalic ? FontStyle.italic : FontStyle.normal,
+              decoration: layer.isUnderline ? TextDecoration.underline : TextDecoration.none,
+            ).merge(
+              TextStyle(
+                fontFamily: layer.fontFamily == 'Times' ? 'Times New Roman' : 
+                            layer.fontFamily == 'Courier' ? 'Courier New' : 
+                            layer.fontFamily == 'Helvetica' ? 'Arial' : null,
+              )
+            ),
           ),
         ),
       );
     } else {
-      child = Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: selected ? const Color(0xFF8B5CF6) : Colors.white54,
-            width: selected ? 2 : 1,
+      child = Opacity(
+        opacity: layer.opacity,
+        child: Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: selected ? const Color(0xFF8B5CF6) : Colors.transparent,
+              width: selected ? 2 : 1,
+            ),
           ),
+          child: layer.imageBytes != null
+              ? Image.memory(layer.imageBytes!, fit: BoxFit.contain)
+              : const Icon(Icons.broken_image_outlined),
         ),
-        child: layer.imageBytes != null
-            ? Image.memory(layer.imageBytes!, fit: BoxFit.contain)
-            : const Icon(Icons.broken_image_outlined),
       );
     }
 
     return Positioned(
       left: left,
       top: top,
-      child: GestureDetector(
-        onTap: () {
-          setState(() => _selectedLayerId = layer.id);
-          if (layer.type == EditorLayerType.text) {
-            _editTextLayer(layer);
-          }
-        },
-        onDoubleTap: () {
-          if (layer.type == EditorLayerType.text) _editTextLayer(layer);
-        },
-        onPanUpdate: (details) {
-          setState(() {
-            layer.relX = (layer.relX + details.delta.dx / pageW).clamp(0.0, 0.95);
-            layer.relY = (layer.relY + details.delta.dy / pageH).clamp(0.0, 0.95);
-            _selectedLayerId = layer.id;
-          });
-        },
-        child: child,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          GestureDetector(
+            onTap: () {
+              setState(() => _selectedLayerId = layer.id);
+            },
+            onDoubleTap: () {
+              if (layer.type == EditorLayerType.text) _editTextLayer(layer);
+            },
+            onPanUpdate: (details) {
+              setState(() {
+                layer.relX = (layer.relX + details.delta.dx / pageW).clamp(-0.1, 1.0);
+                layer.relY = (layer.relY + details.delta.dy / pageH).clamp(-0.1, 1.0);
+                _selectedLayerId = layer.id;
+              });
+            },
+            child: child,
+          ),
+          if (selected)
+            Positioned(
+              right: -10,
+              bottom: -10,
+              child: GestureDetector(
+                onPanUpdate: (details) {
+                  setState(() {
+                    if (layer.type == EditorLayerType.image) {
+                      layer.relWidth = (layer.relWidth + details.delta.dx / pageW).clamp(0.05, 1.0);
+                      layer.relHeight = (layer.relHeight + details.delta.dy / pageH).clamp(0.05, 1.0);
+                    } else if (layer.type == EditorLayerType.text) {
+                      // Scale text dynamically based on downward diagonal drag
+                      layer.fontSizePt = (layer.fontSizePt + details.delta.dy * 0.5).clamp(8.0, 120.0);
+                    }
+                  });
+                },
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                  ),
+                  child: const Icon(Icons.open_in_full_rounded, size: 14, color: Color(0xFF8B5CF6)),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

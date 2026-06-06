@@ -4,7 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'providers/favorites_provider.dart';
 import 'providers/notifications_provider.dart';
-import 'providers/shell_navigation_provider.dart';
+import 'providers/shell_navigation_provider.dart' show ShellNavigationProvider, kAccountTabIndex;
 import 'providers/theme_provider.dart';
 import 'features/cv_maker/providers/cv_maker_provider.dart';
 import 'screens/app_shell_screen.dart';
@@ -36,10 +36,6 @@ class PdfToolsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
-    final notificationsProvider = context.read<NotificationsProvider>();
-    final favoritesProvider = context.read<FavoritesProvider>();
-    final shellNav = context.read<ShellNavigationProvider>();
-    final cvMakerProvider = context.read<CvMakerProvider>();
 
     return MaterialApp(
       title: 'PDF Tools — Merge, Split, Convert & More',
@@ -47,18 +43,6 @@ class PdfToolsApp extends StatelessWidget {
       themeMode: themeProvider.themeMode,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      builder: (context, child) {
-        return MultiProvider(
-          providers: [
-            ChangeNotifierProvider.value(value: themeProvider),
-            ChangeNotifierProvider.value(value: notificationsProvider),
-            ChangeNotifierProvider.value(value: favoritesProvider),
-            ChangeNotifierProvider.value(value: shellNav),
-            ChangeNotifierProvider.value(value: cvMakerProvider),
-          ],
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
@@ -79,7 +63,7 @@ class PdfToolsApp extends StatelessWidget {
         }
         if (settings.name == '/history') {
           return MaterialPageRoute(
-            builder: (_) => const AppShellScreen(initialTab: 3),
+            builder: (_) => const AppShellScreen(initialTab: kAccountTabIndex),
           );
         }
         if (settings.name != null && settings.name!.startsWith('/tool/')) {

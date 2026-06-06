@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../core/app_theme.dart';
+import '../core/open_tool.dart';
 import '../data/tools_catalog.dart';
 import '../data/tools_data.dart';
 import '../models/pdf_tool.dart';
@@ -59,8 +60,7 @@ class ToolsCatalogView extends StatelessWidget {
                     return FeaturedToolCard(
                       tool: tool,
                       height: cardHeight,
-                      onTap: () =>
-                          Navigator.pushNamed(context, '/tool/${tool.id}'),
+                      onTap: () => openPdfTool(context, tool),
                     );
                   },
                 ),

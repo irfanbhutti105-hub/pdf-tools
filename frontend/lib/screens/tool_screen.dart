@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:printing/printing.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -512,6 +514,19 @@ class _ToolScreenState extends State<ToolScreen> {
         ..setAttribute('download', outName)
         ..click();
       html.Url.revokeObjectUrl(url);
+    } else if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        await Printing.sharePdf(
+          bytes: Uint8List.fromList(_resultBytes!),
+          filename: outName,
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error sharing file: $e')),
+          );
+        }
+      }
     } else {
       String? outputFile = await FilePicker.platform.saveFile(
         dialogTitle: 'Save processed file',
@@ -1406,6 +1421,180 @@ class _ToolScreenState extends State<ToolScreen> {
           ),
         ];
 
+      case 'organize':
+        return [
+          Text('Page Order', style: labelStyle),
+          const SizedBox(height: 8),
+          _StyledTextField(
+            hint: 'e.g. 3, 1, 2, 5, 4',
+            onChanged: (v) => _pageOrder = v,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Enter page numbers separated by commas in the order you want.\n'
+            'Leave empty to keep the original page order.',
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              color: isDark ? Colors.white38 : Colors.black38,
+            ),
+          ),
+        ];
+
+      case 'add-page-numbers':
+        return [
+          Text('Position', style: labelStyle),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            children: [
+              ('bottom-center', 'Bottom Center'),
+              ('bottom-left', 'Bottom Left'),
+              ('bottom-right', 'Bottom Right'),
+              ('top-center', 'Top Center'),
+            ].map((opt) {
+              final selected = _pageNumberPosition == opt.$1;
+              return ChoiceChip(
+                label: Text(opt.$2),
+                selected: selected,
+                selectedColor: _tool!.color,
+                labelStyle: GoogleFonts.poppins(
+                  color: selected ? Colors.white : null,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+                onSelected: (_) =>
+                    setState(() => _pageNumberPosition = opt.$1),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          Text('Start Number: $_pageNumberStart', style: labelStyle),
+          Slider(
+            value: _pageNumberStart.toDouble(),
+            min: 1,
+            max: 100,
+            divisions: 99,
+            activeColor: _tool!.color,
+            onChanged: (v) =>
+                setState(() => _pageNumberStart = v.round()),
+          ),
+        ];
+
+      case 'ocr':
+        return [
+          Text('OCR Language', style: labelStyle),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            children: [
+              ('eng', 'English'),
+              ('fra', 'French'),
+              ('deu', 'German'),
+              ('spa', 'Spanish'),
+              ('ara', 'Arabic'),
+              ('urd', 'Urdu'),
+            ].map((opt) {
+              final selected = _ocrLanguage == opt.$1;
+              return ChoiceChip(
+                label: Text(opt.$2),
+                selected: selected,
+                selectedColor: _tool!.color,
+                labelStyle: GoogleFonts.poppins(
+                  color: selected ? Colors.white : null,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+                onSelected: (_) =>
+                    setState(() => _ocrLanguage = opt.$1),
+              );
+            }).toList(),
+          ),
+        ];
+
+      case 'crop':
+        return [
+          Text('Crop Margins (points)', style: labelStyle),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _StyledTextField(
+                  hint: 'Left',
+                  initialValue: _cropLeft.toString(),
+                  onChanged: (v) =>
+                      _cropLeft = double.tryParse(v) ?? 0,
+                  isDark: isDark,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StyledTextField(
+                  hint: 'Right',
+                  initialValue: _cropRight.toString(),
+                  onChanged: (v) =>
+                      _cropRight = double.tryParse(v) ?? 0,
+                  isDark: isDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _StyledTextField(
+                  hint: 'Top',
+                  initialValue: _cropTop.toString(),
+                  onChanged: (v) =>
+                      _cropTop = double.tryParse(v) ?? 0,
+                  isDark: isDark,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StyledTextField(
+                  hint: 'Bottom',
+                  initialValue: _cropBottom.toString(),
+                  onChanged: (v) =>
+                      _cropBottom = double.tryParse(v) ?? 0,
+                  isDark: isDark,
+                ),
+              ),
+            ],
+          ),
+        ];
+
+      case 'redact':
+        return [
+          Text('Search Terms', style: labelStyle),
+          const SizedBox(height: 8),
+          _StyledTextField(
+            hint: 'e.g. SSN, email, phone',
+            onChanged: (v) => _redactTerms = v,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Comma-separated terms to redact from the PDF.',
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              color: isDark ? Colors.white38 : Colors.black38,
+            ),
+          ),
+        ];
+
+      case 'html-url-to-pdf':
+        return [
+          Text('Website URL', style: labelStyle),
+          const SizedBox(height: 8),
+          _StyledTextField(
+            hint: 'https://example.com',
+            onChanged: (v) => _htmlUrl = v,
+            isDark: isDark,
+          ),
+        ];
+
       default:
         return [];
     }
@@ -1978,8 +2167,8 @@ class _ToolScreenState extends State<ToolScreen> {
         children: [
           // Quill Toolbar
           quill.QuillSimpleToolbar(
-            configurations: quill.QuillSimpleToolbarConfigurations(
-              controller: _quillController,
+            controller: _quillController,
+            config: quill.QuillSimpleToolbarConfig(
               showFontFamily: false,
               showFontSize: false,
               showBoldButton: true,
@@ -2009,8 +2198,8 @@ class _ToolScreenState extends State<ToolScreen> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: quill.QuillEditor.basic(
-                configurations: quill.QuillEditorConfigurations(
-                  controller: _quillController,
+                controller: _quillController,
+                config: const quill.QuillEditorConfig(
                   placeholder: 'Write your outstanding PDF content here...',
                   padding: EdgeInsets.zero,
                   autoFocus: false,

@@ -66,6 +66,7 @@ const List<ToolCategoryMeta> toolCategoryOrder = [
 ];
 
 const Map<String, ToolCategory> _toolCategoryById = {
+  'document-scanner': ToolCategory.essential,
   'pdf-viewer': ToolCategory.essential,
   'pdf-editor': ToolCategory.essential,
   'merge': ToolCategory.essential,
@@ -98,6 +99,7 @@ ToolCategory categoryForTool(PdfTool tool) =>
     _toolCategoryById[tool.id] ?? ToolCategory.advanced;
 
 const List<String> featuredToolIds = [
+  'document-scanner',
   'merge',
   'compress',
   'pdf-viewer',
