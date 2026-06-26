@@ -11,6 +11,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 from dotenv import load_dotenv
+import subprocess
+
+POPPLER_PATH = os.getenv("POPPLER_PATH", "/usr/bin")
+TESSERACT_PATH = os.getenv("TESSERACT_PATH", "/usr/bin/tesseract")
+
+try:
+    import pytesseract
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+except ImportError:
+    pass
+
+
+def get_available_langs():
+    result = subprocess.run(
+        [TESSERACT_PATH, "--list-langs"],
+        capture_output=True, text=True
+    )
+    return result.stdout.splitlines() + result.stderr.splitlines()
 
 # Load environment variables
 load_dotenv()
@@ -610,7 +628,7 @@ async def pdf_to_images(
     img_dir.mkdir()
 
     try:
-        images = convert_from_path(str(input_path), dpi=dpi)
+        images = convert_from_path(str(input_path), dpi=dpi, poppler_path=POPPLER_PATH)
         img_paths: list[Path] = []
         for i, img in enumerate(images):
             img_path = img_dir / f"page_{i + 1}.jpg"
@@ -1170,7 +1188,7 @@ async def pdf_to_powerpoint(
 
     try:
         # Convert PDF pages to images
-        images = convert_from_path(str(input_path), dpi=150)
+        images = convert_from_path(str(input_path), dpi=150, poppler_path=POPPLER_PATH)
         
         # Create PowerPoint
         prs = Presentation()
@@ -1208,7 +1226,11 @@ async def pdf_to_powerpoint(
         )
     except Exception as e:
         cleanup_files(input_path, output_path, img_dir)
+    #print(e)
         raise HTTPException(status_code=500, detail=str(e))
+    #import traceback
+        #print(traceback.format_exc())
+        #raise
 
 
 # ─────────────────────────────────────────────
@@ -1436,8 +1458,9 @@ async def ocr_pdf(
     img_dir.mkdir()
 
     try:
+
         # Convert PDF to images
-        images = convert_from_path(str(input_path), dpi=300)
+        images = convert_from_path(str(input_path), dpi=300, poppler_path=POPPLER_PATH)
         
         # Create searchable PDF
         c = pdf_canvas.Canvas(str(output_path), pagesize=A4)
